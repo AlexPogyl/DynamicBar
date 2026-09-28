@@ -100,7 +100,7 @@ enum ScreenshotTest {
         appState.isEditingText = false
         if let settings = RenderTest.image(
             root: SettingsView(tabSettings: tabSettings, appState: appState, translation: translation),
-            size: NSSize(width: 460, height: 950),
+            size: NSSize(width: 460, height: 520),
             appearance: .darkAqua
         ) {
             RenderTest.write(settings, to: directory.appendingPathComponent("settings.png"))

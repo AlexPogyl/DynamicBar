@@ -127,6 +127,16 @@ grep -q "SETTINGSTEST window=ok" "$OUT/settingstest.log"; check $? "settings win
 grep -q "SETTINGSTEST OK" "$OUT/settingstest.log"; check $? "settings window reports the tab order"
 grep "SETTINGSTEST tabs=" "$OUT/settingstest.log" | sed 's/^/      /'
 
+# Окно настроек должно помещаться на экран и прокручиваться, а не обрезаться.
+SETTINGS_H=$(grep -o "bounds=([0-9]*,[0-9]* [0-9]*x[0-9]*" "$OUT/settingstest.log" | sed 's/.*x//')
+USABLE_H=$(grep -o "visible=([0-9]*,[0-9]* [0-9]*x[0-9]*" "$OUT/selftest.log" | head -1 | sed 's/.*x//')
+if [ -n "$SETTINGS_H" ] && [ -n "$USABLE_H" ]; then
+  [ "$SETTINGS_H" -le "$USABLE_H" ]; check $? "окно настроек помещается на экран (${SETTINGS_H} pt при доступных ${USABLE_H} pt)"
+  [ "$SETTINGS_H" -le 600 ]; check $? "окно настроек короткое, а не во весь экран (${SETTINGS_H} pt)"
+fi
+grep -q "прокрутка работает" "$OUT/settingstest.log"; check $? "содержимое настроек прокручивается"
+grep "SETTINGSTEST scroll:" "$OUT/settingstest.log" | sed 's/^/      /'
+
 # ------------------------------------------------------------- 6 hover -------
 step "6. Live hover behaviour (real cursor movement)"
 swiftc -O -swift-version 5 "$ROOT/scripts/tools/warp.swift" -o "$WARP" 2>"$OUT/warp-build.log"

@@ -331,6 +331,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
+    /// Все области прокрутки в дереве представлений: (видимая высота, высота содержимого).
+    static func scrollViews(in view: NSView) -> [(CGFloat, CGFloat)] {
+        var found: [(CGFloat, CGFloat)] = []
+        if let scroll = view as? NSScrollView {
+            found.append((scroll.contentView.bounds.height, scroll.documentView?.frame.height ?? 0))
+        }
+        for subview in view.subviews {
+            found.append(contentsOf: scrollViews(in: subview))
+        }
+        return found
+    }
+
     /// Первое подходящее запущенное приложение, кроме исключённого.
     private static func pickActivationTarget(excluding bundleID: String) -> String? {
         let own = Bundle.main.bundleIdentifier
@@ -407,6 +419,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     print("SETTINGSTEST window=missing (нашлось \(windows.count) окон)")
                 }
                 print("SETTINGSTEST tabs=\(self.tabSettings.orderedVisibleTabs.map(\.rawValue).joined(separator: ","))")
+
+                // Проверяем, что содержимое именно прокручивается, а не обрезано:
+                // ищем NSScrollView и сравниваем высоту содержимого с видимой.
+                if let content = self.settingsWindow?.window?.contentView {
+                    for (visible, document) in Self.scrollViews(in: content) {
+                        let scrollable = document > visible + 1
+                        print("SETTINGSTEST scroll: видно \(Int(visible)) pt, содержимое \(Int(document)) pt — \(scrollable ? "прокрутка работает" : "прокрутка не нужна")")
+                    }
+                }
                 print("SETTINGSTEST OK")
                 NSApp.terminate(nil)
             }

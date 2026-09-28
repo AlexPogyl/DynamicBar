@@ -109,7 +109,7 @@ enum RenderTest {
             let url = directory.appendingPathComponent("settings-\(label).png")
             render(
                 root: SettingsView(tabSettings: tabSettings, appState: appState, translation: translation),
-                size: NSSize(width: 460, height: 640),
+                size: NSSize(width: 460, height: 520),
                 appearance: appearance,
                 to: url
             )

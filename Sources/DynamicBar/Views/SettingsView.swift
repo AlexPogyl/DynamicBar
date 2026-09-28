@@ -14,12 +14,17 @@ struct SettingsView: View {
     fileprivate static let listSpace = "tabsListSpace"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            tabsSection
-            Divider()
-            panelSection
-            Divider()
-            translatorSection
+        // Окно настроек не должно быть выше экрана. Весь текст — в одной
+        // прокрутке: внутренние прокручиваемые области тут только мешали бы,
+        // потому что колесо мыши упиралось бы в них.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                tabsSection
+                Divider()
+                panelSection
+                Divider()
+                translatorSection
+            }
         }
         .frame(width: 460)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -43,37 +48,33 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // ScrollView + VStack, а не List: строки List рисует AppKit-таблицей,
-            // которая не попадает в оффскрин-рендер, и вид окна нельзя было бы
-            // проверить автоматически. Порядок меняется перетаскиванием или
-            // стрелками.
-            ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(tabSettings.entries) { entry in
-                        TabSettingsRow(
-                            entry: entry,
-                            tabSettings: tabSettings,
-                            appState: appState,
-                            rowHeight: Self.rowHeight,
-                            draggingID: $draggingID
-                        )
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .frame(height: Self.rowHeight, alignment: .center)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(draggingID == entry.id
-                                      ? Color.accentColor.opacity(0.22)
-                                      : Color.primary.opacity(0.05))
-                        )
-                        .opacity(draggingID == entry.id ? 0.9 : 1)
-                        .zIndex(draggingID == entry.id ? 1 : 0)
-                    }
+            // VStack, а не List и не отдельный ScrollView: строки List рисует
+            // AppKit-таблицей, которая не попадает в оффскрин-рендер, а своя
+            // прокрутка внутри общей только перехватывала бы колесо мыши.
+            VStack(spacing: 2) {
+                ForEach(tabSettings.entries) { entry in
+                    TabSettingsRow(
+                        entry: entry,
+                        tabSettings: tabSettings,
+                        appState: appState,
+                        rowHeight: Self.rowHeight,
+                        draggingID: $draggingID
+                    )
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .frame(height: Self.rowHeight, alignment: .center)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(draggingID == entry.id
+                                  ? Color.accentColor.opacity(0.22)
+                                  : Color.primary.opacity(0.05))
+                    )
+                    .opacity(draggingID == entry.id ? 0.9 : 1)
+                    .zIndex(draggingID == entry.id ? 1 : 0)
                 }
-                .padding(.vertical, 2)
-                .coordinateSpace(name: Self.listSpace)
             }
-            .frame(height: min(CGFloat(tabSettings.entries.count) * 46 + 12, 300))
+            .padding(.vertical, 2)
+            .coordinateSpace(name: Self.listSpace)
 
             HStack {
                 Button("Сбросить порядок и видимость") {
