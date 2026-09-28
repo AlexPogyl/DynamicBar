@@ -96,7 +96,16 @@ final class AppState: ObservableObject {
     @Published var isPinned: Bool = false
     @Published var isEditingText: Bool = false
     @Published var toast: String?
-    @Published var hoverEnabled: Bool = true
+    /// Реагировать ли на наведение. Приватный сеттер: выключить наведение
+    /// можно только тогда, когда приложение остаётся доступным другим путём.
+    @Published private(set) var hoverEnabled: Bool = true
+
+    /// Показывать ли иконку в строке меню.
+    @Published private(set) var showMenuBarIcon: Bool = true
+
+    /// Открыто ли сейчас окно настроек. Нужно панели: она не должна снимать
+    /// активацию приложения, пока на экране чужое окно, которому нужен фокус.
+    var isSettingsVisible: Bool = false
 
     /// Ширина и высота невидимой зоны наведения в верхнем центре экрана.
     @Published var hotspotWidth: CGFloat = 180
@@ -116,20 +125,29 @@ final class AppState: ObservableObject {
     var onPlacementChanged: (() -> Void)?
     var onAnimationStyleChanged: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onMenuBarIconChanged: ((Bool) -> Void)?
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private var toastTimer: Timer?
 
     private enum Key {
         static let hoverEnabled = "hoverEnabled"
+        static let showMenuBarIcon = "showMenuBarIcon"
         static let placement = "panelPlacement"
         static let animationStyle = "animationStyle"
     }
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         if defaults.object(forKey: Key.hoverEnabled) != nil {
             hoverEnabled = defaults.bool(forKey: Key.hoverEnabled)
         }
+        if defaults.object(forKey: Key.showMenuBarIcon) != nil {
+            showMenuBarIcon = defaults.bool(forKey: Key.showMenuBarIcon)
+        }
+        // Испорченное сочетание из прошлых версий: приложение осталось бы без
+        // единого способа открыть настройки.
+        if !hoverEnabled && !showMenuBarIcon { showMenuBarIcon = true }
         if let raw = defaults.string(forKey: Key.placement), let value = PanelPlacement(rawValue: raw) {
             placement = value
         }
@@ -153,9 +171,24 @@ final class AppState: ObservableObject {
         onPinChanged?(pinned)
     }
 
-    func setHoverEnabled(_ enabled: Bool) {
+    /// Иконку в строке меню можно спрятать, только если панель открывается
+    /// наведением. И наоборот: наведение можно выключить, только если иконка
+    /// на месте. Иначе до настроек не добраться вообще.
+    var canHideMenuBarIcon: Bool { hoverEnabled }
+    var canDisableHover: Bool { showMenuBarIcon }
+
+    func setHoverEnabled(_ enabled: Bool, persist: Bool = true) {
+        if !enabled && !showMenuBarIcon { return }
         hoverEnabled = enabled
-        defaults.set(enabled, forKey: Key.hoverEnabled)
+        if persist { defaults.set(enabled, forKey: Key.hoverEnabled) }
+    }
+
+    func setShowMenuBarIcon(_ visible: Bool, persist: Bool = true) {
+        if !visible && !hoverEnabled { return }
+        guard showMenuBarIcon != visible else { return }
+        showMenuBarIcon = visible
+        if persist { defaults.set(visible, forKey: Key.showMenuBarIcon) }
+        onMenuBarIconChanged?(visible)
     }
 
     func setPlacement(_ value: PanelPlacement) {

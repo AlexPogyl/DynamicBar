@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsTest: Bool
     private let animationTest: Bool
     private let activationTest: Bool
+    private let gearTest: Bool
 
     private let appState = AppState()
     private let clipboard = ClipboardStore()
@@ -23,11 +24,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotspot: HotspotMonitor!
     private var statusItemController: StatusItemController!
 
-    init(showTest: Bool, settingsTest: Bool = false, animationTest: Bool = false, activationTest: Bool = false) {
+    init(showTest: Bool,
+         settingsTest: Bool = false,
+         animationTest: Bool = false,
+         activationTest: Bool = false,
+         gearTest: Bool = false) {
         self.showTest = showTest
         self.settingsTest = settingsTest
         self.animationTest = animationTest
         self.activationTest = activationTest
+        self.gearTest = gearTest
         super.init()
     }
 
@@ -84,6 +90,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusItemController.onOpenSettings = openSettings
         appState.onOpenSettings = openSettings
+
+        // Иконку в строке меню можно спрятать — тогда единственный путь к
+        // настройкам это шестерёнка в панели, поэтому состояние применяем сразу.
+        appState.onMenuBarIconChanged = { [weak self] visible in
+            self?.statusItemController?.setVisible(visible)
+        }
+        statusItemController.setVisible(appState.showMenuBarIcon)
         statusItemController.onQuit = {
             Log.info("quit requested from menu bar")
             NSApp.terminate(nil)
@@ -114,6 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if activationTest {
             runActivationTest()
+        }
+        if gearTest {
+            runGearTest()
         }
     }
 
@@ -153,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.info("show test: starting")
         // Hover is switched off for the duration so the panel cannot be
         // auto-hidden just because the pointer happens to be elsewhere.
-        appState.hoverEnabled = false
+        appState.setHoverEnabled(false, persist: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             guard let self else { return }
             print("SHOWTEST visible-before=\(self.panelController.isVisible)")
@@ -188,7 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `--animtest`: измерить кадры анимации. Позволяет судить о плавности
     /// числом, а не на глаз: ровное движение — это стабильный интервал кадров.
     private func runAnimationTest() {
-        appState.hoverEnabled = false
+        appState.setHoverEnabled(false, persist: false)
         let style = appState.animationStyle
         print("ANIMTEST стиль=\(style.rawValue)")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
@@ -222,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `ACTIVATION_HIDE_TARGET=1` дополнительно прячет цель — так проверяется
     /// случай свёрнутого или скрытого окна, ради которого всё и затевалось.
     private func runActivationTest() {
-        appState.hoverEnabled = false
+        appState.setHoverEnabled(false, persist: false)
 
         let environment = ProcessInfo.processInfo.environment
         let resetBundle = environment["ACTIVATION_RESET"] ?? "com.apple.finder"
@@ -328,10 +344,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .bundleIdentifier
     }
 
+    /// `--geartest`: сценарий «иконку в строке меню скрыли».
+    ///
+    /// Проверяет то, ради чего шестерёнка и добавлена: при скрытой иконке
+    /// настройки всё ещё открываются тем же путём, которым их открывает
+    /// шестерёнка в шапке панели, и приложение не остаётся без способа
+    /// добраться до настроек вообще.
+    private func runGearTest() {
+        appState.setHoverEnabled(true, persist: false)
+        appState.setShowMenuBarIcon(false, persist: false)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+            guard let self else { return }
+            let iconHidden = !self.statusItemController.statusItemVisible
+            print("GEARTEST иконка в строке меню скрыта: \(iconHidden ? "да" : "НЕТ")")
+
+            // Тот же вызов, что и по клику на шестерёнку.
+            self.appState.requestSettings()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                guard let self else { return }
+                let settings = self.onScreenWindows().first { $0.layer == 0 && $0.width > 300 }
+                if let settings {
+                    print("GEARTEST настройки открылись: да (\(Int(settings.width))×\(Int(settings.height)))")
+                } else {
+                    print("GEARTEST настройки открылись: НЕТ")
+                }
+
+                // Защита: при скрытой иконке наведение выключить нельзя,
+                // иначе до настроек не добраться.
+                self.appState.setHoverEnabled(false, persist: false)
+                print("GEARTEST наведение осталось включённым при скрытой иконке: \(self.appState.hoverEnabled ? "да" : "НЕТ")")
+
+                // Обратная защита: при выключенном наведении иконку не спрятать.
+                self.appState.setHoverEnabled(false, persist: false)
+                self.appState.setShowMenuBarIcon(false, persist: false)
+
+                // Возвращаем как было.
+                self.appState.setShowMenuBarIcon(true, persist: false)
+                self.appState.setHoverEnabled(true, persist: false)
+                print("GEARTEST иконка возвращена: \(self.statusItemController.statusItemVisible ? "да" : "НЕТ")")
+                print("GEARTEST OK")
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     /// `--settingstest`: открыть окно настроек и убедиться глазами window-сервера,
     /// что оно действительно появилось на экране.
     private func runSettingsTest() {
-        appState.hoverEnabled = false
+        appState.setHoverEnabled(false, persist: false)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self else { return }
             self.settingsWindow?.show()

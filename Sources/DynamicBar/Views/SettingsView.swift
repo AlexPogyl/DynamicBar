@@ -140,6 +140,29 @@ struct SettingsView: View {
                 set: { appState.setHoverEnabled($0) }
             ))
             .font(.system(size: 12))
+            // Хотя бы один способ добраться до настроек должен остаться.
+            .disabled(!appState.canDisableHover)
+            .help(appState.canDisableHover
+                  ? "Наведение на верхний центр экрана"
+                  : "Сначала включите иконку в строке меню — иначе настройки станут недоступны")
+
+            Toggle("Показывать иконку в строке меню", isOn: Binding(
+                get: { appState.showMenuBarIcon },
+                set: { appState.setShowMenuBarIcon($0) }
+            ))
+            .font(.system(size: 12))
+            .disabled(!appState.canHideMenuBarIcon)
+            .help(appState.canHideMenuBarIcon
+                  ? "Если спрятать, настройки останутся доступны через шестерёнку в панели"
+                  : "Сначала включите открытие наведением — иначе настройки станут недоступны")
+
+            if !appState.showMenuBarIcon {
+                Label("Иконка скрыта. Настройки открываются шестерёнкой в шапке панели.",
+                      systemImage: "info.circle")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {

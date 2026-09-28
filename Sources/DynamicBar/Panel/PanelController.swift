@@ -431,6 +431,13 @@ final class PanelController {
 
     func endEditingFocusIfNeeded() {
         guard didActivateApp else { return }
+        // Если на экране окно настроек, приложение обязано остаться активным:
+        // иначе окно потеряет фокус сразу после открытия.
+        guard !appState.isSettingsVisible else {
+            didActivateApp = false
+            Log.debug("panel: фокус оставлен приложению — открыты настройки")
+            return
+        }
         didActivateApp = false
         NSApp.deactivate()
         Log.debug("panel released focus")

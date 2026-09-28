@@ -354,7 +354,43 @@ enum StoreTest {
               TranslationProvider.allCases.filter(\.needsKey) == [.yandex])
         UserDefaults.standard.removePersistentDomain(forName: translationSuite)
 
-        // 15 — empty snippets are rejected.
+        // 15 — доступ к настройкам не должен теряться.
+        let appSuite = "com.dynamicbar.appstatesuite"
+        UserDefaults.standard.removePersistentDomain(forName: appSuite)
+        let appDefaults = UserDefaults(suiteName: appSuite)!
+        let state = AppState(defaults: appDefaults)
+
+        check("по умолчанию иконка в строке меню показана", state.showMenuBarIcon)
+        check("по умолчанию наведение включено", state.hoverEnabled)
+        check("иконку можно спрятать, пока наведение включено", state.canHideMenuBarIcon)
+
+        state.setShowMenuBarIcon(false, persist: true)
+        check("иконка прячется", !state.showMenuBarIcon)
+        check("при скрытой иконке наведение выключить нельзя", !state.canDisableHover)
+        state.setHoverEnabled(false, persist: true)
+        check("попытка выключить наведение отклонена", state.hoverEnabled,
+              "hover=\(state.hoverEnabled)")
+
+        let reloadedState = AppState(defaults: appDefaults)
+        check("скрытая иконка переживает перезапуск", !reloadedState.showMenuBarIcon)
+        check("после перезапуска наведение осталось включённым", reloadedState.hoverEnabled)
+
+        state.setShowMenuBarIcon(true, persist: true)
+        state.setHoverEnabled(false, persist: true)
+        check("при выключенном наведении иконку спрятать нельзя", !state.canHideMenuBarIcon
+              && state.showMenuBarIcon, "icon=\(state.showMenuBarIcon)")
+
+        // Испорченное хранилище: обе настройки выключены — приложение должно
+        // само вернуть иконку, иначе до настроек не добраться.
+        appDefaults.set(false, forKey: "hoverEnabled")
+        appDefaults.set(false, forKey: "showMenuBarIcon")
+        let repaired = AppState(defaults: appDefaults)
+        check("испорченное сочетание настроек чинится при запуске",
+              repaired.showMenuBarIcon || repaired.hoverEnabled,
+              "icon=\(repaired.showMenuBarIcon) hover=\(repaired.hoverEnabled)")
+        UserDefaults.standard.removePersistentDomain(forName: appSuite)
+
+        // 16 — empty snippets are rejected.
         let countBeforeEmptyAdd = snippets.snippets.count
         snippets.add(title: "nope", body: "   \n  ")
         check("empty snippet rejected", snippets.snippets.count == countBeforeEmptyAdd, "count=\(snippets.snippets.count)")

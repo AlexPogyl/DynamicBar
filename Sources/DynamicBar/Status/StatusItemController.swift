@@ -34,6 +34,15 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         Log.info("status item created (visible=\(statusItem.isVisible))")
     }
 
+    var statusItemVisible: Bool { statusItem.isVisible }
+
+    /// Спрятать или показать иконку в строке меню.
+    func setVisible(_ visible: Bool) {
+        guard statusItem.isVisible != visible else { return }
+        statusItem.isVisible = visible
+        Log.info("status item visible = \(visible)")
+    }
+
     /// Machine-readable description of where the menu bar icon actually lives.
     /// Used by `--showtest` / `scripts/verify.sh` to prove the extra is mounted.
     var statusItemDebugInfo: String {

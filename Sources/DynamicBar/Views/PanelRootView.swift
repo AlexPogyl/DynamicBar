@@ -60,6 +60,13 @@ struct PanelRootView: View {
             }
             .foregroundStyle(appState.isPinned ? Color.accentColor : Color.secondary)
 
+            // Шестерёнка между пином и крестиком. Нужна не только для удобства:
+            // если иконка в строке меню скрыта, это единственный путь к
+            // настройкам, кроме зоны наведения.
+            IconButton(symbol: "gearshape", help: "Настройки (⌘,)") {
+                appState.requestSettings()
+            }
+
             IconButton(symbol: "xmark", help: "Закрыть (Esc)") {
                 appState.requestHide()
             }
@@ -74,10 +81,11 @@ struct PanelRootView: View {
         let tabs = tabSettings.orderedVisibleTabs
         guard !tabs.isEmpty else { return false }
         let width = appState.panelWidth
-        let labels = tabs.reduce(CGFloat(0)) { $0 + CGFloat($1.title.count) * 7.2 + 42 }
+        // 40 pt на вкладку — иконка, отступы и поля; 7.2 pt на символ при 12 pt.
+        let labels = tabs.reduce(CGFloat(0)) { $0 + CGFloat($1.title.count) * 7.2 + 40 }
         let spacing = CGFloat(tabs.count - 1) * 4
-        // Справа ещё «закреплено», булавка и крестик.
-        let reserved: CGFloat = 130
+        // Справа булавка, шестерёнка и крестик плюс поля шапки.
+        let reserved: CGFloat = 145
         return labels + spacing > width - reserved
     }
 

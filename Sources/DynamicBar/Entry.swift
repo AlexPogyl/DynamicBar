@@ -12,6 +12,7 @@ import AppKit
 /// `--showtest`        : start normally, force show/hide the panel, print geometry, exit.
 /// `--settingstest`    : open the settings window and confirm it on screen, exit.
 /// `--animtest`        : measure animation frame pacing, exit.
+/// `--geartest`        : hide the menu bar icon and confirm settings stay reachable.
 @main
 enum DynamicBarMain {
     static func main() {
@@ -63,7 +64,8 @@ enum DynamicBarMain {
         let delegate = AppDelegate(showTest: args.contains("--showtest"),
                                    settingsTest: args.contains("--settingstest"),
                                    animationTest: args.contains("--animtest"),
-                                   activationTest: args.contains("--activationtest"))
+                                   activationTest: args.contains("--activationtest"),
+                                   gearTest: args.contains("--geartest"))
         app.delegate = delegate
         // .accessory == no Dock icon, no app menu, but status items still work.
         app.setActivationPolicy(.accessory)

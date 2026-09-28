@@ -236,6 +236,18 @@ step "7b. Громкость системы"
 grep -q "уровень:" "$OUT/selftest.log"; check $? "уровень громкости читается без разрешений"
 grep "  уровень:" "$OUT/selftest.log" | sed 's/^/      /'
 
+# --- настройки при скрытой иконке в строке меню ------------------------------
+step "5c. Настройки доступны при скрытой иконке"
+DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --geartest > "$OUT/geartest.log" 2>&1
+check $? "--geartest exits 0"
+grep -q "GEARTEST OK" "$OUT/geartest.log"; check $? "сценарий дошёл до конца"
+grep -q "иконка в строке меню скрыта: да" "$OUT/geartest.log"; check $? "иконку в строке меню можно скрыть"
+grep -q "настройки открылись: да" "$OUT/geartest.log"; check $? "при скрытой иконке настройки открываются (шестерёнка в панели)"
+grep -q "наведение осталось включённым при скрытой иконке: да" "$OUT/geartest.log"
+check $? "нельзя остаться без единого способа открыть настройки"
+grep -q "иконка возвращена: да" "$OUT/geartest.log"; check $? "иконка возвращается на место"
+grep "GEARTEST" "$OUT/geartest.log" | sed 's/^/      /'
+
 # --- активация приложений ----------------------------------------------------
 step "7a2. Клик по приложению выводит его вперёд"
 DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --activationtest > "$OUT/activationtest.log" 2>&1

@@ -44,10 +44,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
             NSApp.activate(ignoringOtherApps: true)
         }
         window.makeKeyAndOrderFront(nil)
+        appState.isSettingsVisible = true
         Log.info("settings window opened")
     }
 
     func windowWillClose(_ notification: Notification) {
+        appState.isSettingsVisible = false
         Log.info("settings window closed")
         guard didActivate else { return }
         didActivate = false
