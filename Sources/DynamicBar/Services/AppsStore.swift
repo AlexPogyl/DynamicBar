@@ -199,6 +199,9 @@ final class RunningAppsMonitor: ObservableObject {
     var applications: [NSRunningApplication] { entries.compactMap(\.application) }
 
     let spacesService = SpacesService()
+    private let spacesQueue = DispatchQueue(label: "com.dynamicbar.appspaces", qos: .utility)
+    private var spacesRefreshInFlight = false
+    private var spacesRefreshPending = false
     private var observers: [NSObjectProtocol] = []
 
     init() {
@@ -267,8 +270,12 @@ final class RunningAppsMonitor: ObservableObject {
         refreshSpaces()
     }
 
-    /// Отдельный проход по рабочим столам: он заметно дороже списка приложений,
-    /// поэтому вызывается из того же refresh, но не дублируется.
+    /// Отдельный проход по рабочим столам: он заметно дороже списка приложений.
+    ///
+    /// Обязательно в фоне. Опрос окон занимает десятки миллисекунд, а refresh
+    /// вызывается в том числе по показу панели — на главном потоке этот опрос
+    /// останавливал анимацию выезда, и панель замирала на девяноста процентах
+    /// хода. Результат возвращается на главный поток.
     private func refreshSpaces() {
         guard spacesService.isAvailable else {
             if !spaces.isEmpty {
@@ -278,18 +285,34 @@ final class RunningAppsMonitor: ObservableObject {
             }
             return
         }
-        let snapshot = spacesService.snapshot()
-        if spaces != snapshot.spaces { spaces = snapshot.spaces }
-        if activeSpaceID != snapshot.activeSpaceID { activeSpaceID = snapshot.activeSpaceID }
+        let pidByBundle: [(String, pid_t?)] = entries.map { ($0.bundleID, $0.application?.processIdentifier) }
 
-        var byBundle: [String: [Int]] = [:]
-        for entry in entries {
-            guard let app = entry.application else { continue }
-            if let list = snapshot.spacesByPID[app.processIdentifier] {
-                byBundle[entry.bundleID] = list
+        if spacesRefreshInFlight {
+            spacesRefreshPending = true
+            return
+        }
+        spacesRefreshInFlight = true
+
+        spacesQueue.async { [weak self] in
+            guard let self else { return }
+            let snapshot = self.spacesService.snapshot()
+            var byBundle: [String: [Int]] = [:]
+            for (bundleID, pid) in pidByBundle {
+                guard let pid, let list = snapshot.spacesByPID[pid] else { continue }
+                byBundle[bundleID] = list
+            }
+            DispatchQueue.main.async {
+                if self.spaces != snapshot.spaces { self.spaces = snapshot.spaces }
+                if self.activeSpaceID != snapshot.activeSpaceID { self.activeSpaceID = snapshot.activeSpaceID }
+                if byBundle != self.spacesByBundle { self.spacesByBundle = byBundle }
+                self.spacesRefreshInFlight = false
+                // Пока считали, прилетело ещё одно событие — пересчитываем.
+                if self.spacesRefreshPending {
+                    self.spacesRefreshPending = false
+                    self.refreshSpaces()
+                }
             }
         }
-        if byBundle != spacesByBundle { spacesByBundle = byBundle }
     }
 
     /// Раскладка вкладки для текущего режима.

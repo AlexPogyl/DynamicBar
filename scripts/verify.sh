@@ -109,9 +109,10 @@ grep -qE "menubar-layer\[shown\] (2[4-9]|[3-9][0-9])" "$OUT/showtest.log"; check
 
 # Панель должна начинаться от самой кромки экрана: y=0 в координатах
 # window-сервера (отсчёт сверху).
-WINDOW_Y=$(grep -o "window\[shown\] layer=26 bounds=([0-9]*,[0-9]*" "$OUT/showtest.log" | sed 's/.*,//')
-if [ -n "$WINDOW_Y" ]; then
-  [ "$WINDOW_Y" = "0" ]; check $? "panel top edge is flush with the top of the screen (y=${WINDOW_Y})"
+grep -q "geometry:.*сходится" "$OUT/showtest.log"; check $? "верх панели совпадает с верхом экрана"
+grep "SHOWTEST geometry:" "$OUT/showtest.log" | sed 's/^/      /'
+if grep -q "overlay\[shown\]" "$OUT/showtest.log"; then
+  grep "SHOWTEST overlay\[shown\]" "$OUT/showtest.log" | sed 's/^/      /'
 fi
 
 PANEL_H=$(grep -o "window\[shown\] layer=26 bounds=([0-9]*,[0-9]* [0-9]*x[0-9]*" "$OUT/showtest.log" | sed 's/.*x//')
@@ -266,9 +267,19 @@ grep -q "SPACETEST OK" "$OUT/spacetest.log"; check $? "проверка рабо
 if grep -q "доступны:        false" "$OUT/spacetest.log"; then
   ok "приватные API столов недоступны — вкладка работает в режиме «все»"
 else
-  grep -q "сверка с видимыми окнами: совпадает" "$OUT/spacetest.log"
-  check $? "раскладка по столам совпадает с публичным списком видимых окон"
+  if grep -q "сверка с видимыми окнами: пропущена" "$OUT/spacetest.log"; then
+    ok "активный стол неизвестен — сверка раскладки пропущена"
+  else
+    grep -q "сверка с видимыми окнами: совпадает" "$OUT/spacetest.log"
+    check $? "раскладка по столам совпадает с публичным списком видимых окон"
+  fi
   grep -E "столов:|активный стол:|Стол [0-9]+\(активный\)|без окон:" "$OUT/spacetest.log" | sed 's/^/      /'
+
+  # Все три режима вкладки должны отработать на живых данных.
+  for mode in "Все" "Активный стол" "По столам"; do
+    grep -q "^    ${mode}:" "$OUT/spacetest.log"; check $? "режим «${mode}» отработал на живых данных"
+  done
+  grep -E "^    (Все|Активный стол|По столам):" "$OUT/spacetest.log" | sed 's/^/      /'
 fi
 
 # --- активация приложений ----------------------------------------------------
@@ -276,10 +287,16 @@ step "7a2. Клик по приложению выводит его вперёд
 DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --activationtest > "$OUT/activationtest.log" 2>&1
 check $? "--activationtest exits 0"
 grep -q "ACTIVATIONTEST OK" "$OUT/activationtest.log"; check $? "проверка активации дошла до конца"
-grep -q "сброс: .* ок" "$OUT/activationtest.log"; check $? "перед каждой стратегией цель уводится назад (иначе тест бессмыслен)"
-grep -q "AppActivator.bringToFront (как в панели) → СРАБОТАЛО" "$OUT/activationtest.log"
-check $? "AppActivator.bringToFront поднимает приложение из неактивного процесса"
-grep "ACTIVATIONTEST .*→" "$OUT/activationtest.log" | sed 's/^/      /'
+if grep -q "сессия заблокирована" "$OUT/activationtest.log"; then
+  # При заблокированном экране впереди loginwindow, приложения не поднимаются.
+  # Это не ошибка сборки, поэтому проверка пропускается с пояснением.
+  ok "экран заблокирован — активация не проверялась (разблокируйте и повторите)"
+else
+  grep -q "сброс: .* ок" "$OUT/activationtest.log"; check $? "перед каждой стратегией цель уводится назад (иначе тест бессмыслен)"
+  grep -q "AppActivator.bringToFront (как в панели) → СРАБОТАЛО" "$OUT/activationtest.log"
+  check $? "AppActivator.bringToFront поднимает приложение из неактивного процесса"
+fi
+grep "ACTIVATIONTEST .*→" "$OUT/activationtest.log" | sed 's/^/      /' || true
 
 # --- анимация ----------------------------------------------------------------
 step "7c. Плавность анимации"

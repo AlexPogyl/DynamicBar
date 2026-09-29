@@ -460,7 +460,23 @@ enum StoreTest {
               noSpaces.count == 2 && noSpaces[1].running.count == 4,
               "приложений \(noSpaces.count > 1 ? noSpaces[1].running.count : -1)")
 
-        // 17 — empty snippets are rejected.
+        // 17 — выбранный режим вкладки сохраняется.
+        let modeSuite = "com.dynamicbar.appsmode"
+        UserDefaults.standard.removePersistentDomain(forName: modeSuite)
+        let modeDefaults = UserDefaults(suiteName: modeSuite)!
+        let modeState = AppState(defaults: modeDefaults)
+        check("по умолчанию режим «все»", modeState.appsDisplayMode == .all,
+              modeState.appsDisplayMode.rawValue)
+        modeState.setAppsDisplayMode(.bySpace, persist: true)
+        check("режим переключается", modeState.appsDisplayMode == .bySpace)
+        let reloadedMode = AppState(defaults: modeDefaults)
+        check("выбранный режим переживает перезапуск", reloadedMode.appsDisplayMode == .bySpace,
+              reloadedMode.appsDisplayMode.rawValue)
+        check("у каждого режима есть название и пояснение",
+              AppsDisplayMode.allCases.allSatisfy { !$0.title.isEmpty && !$0.explanation.isEmpty && !$0.shortTitle.isEmpty })
+        UserDefaults.standard.removePersistentDomain(forName: modeSuite)
+
+        // 18 — empty snippets are rejected.
         let countBeforeEmptyAdd = snippets.snippets.count
         snippets.add(title: "nope", body: "   \n  ")
         check("empty snippet rejected", snippets.snippets.count == countBeforeEmptyAdd, "count=\(snippets.snippets.count)")

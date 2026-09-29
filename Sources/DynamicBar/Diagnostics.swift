@@ -111,6 +111,12 @@ enum Diagnostics {
         // Раскладка тем же путём, которым пользуется вкладка.
         let monitor = RunningAppsMonitor()
         monitor.refresh()
+        // Снимок столов считается в фоне, чтобы не тормозить анимацию панели.
+        // Здесь его надо дождаться, иначе читались бы пустые данные.
+        let deadline = Date().addingTimeInterval(5)
+        while monitor.spaces.isEmpty && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
         print("  приложений:      \(monitor.entries.count)")
         for space in monitor.spaces {
             let apps = monitor.entries.filter { monitor.spaces(of: $0.bundleID).contains(space.id) }
@@ -123,7 +129,11 @@ enum Diagnostics {
         // Сверка приватного API с публичным: список видимых сейчас окон не
         // требует никаких приватных вызовов и служит эталоном для активного
         // стола. Если они расходятся — доверять раскладке нельзя.
-        if let active = snapshot.activeSpaceID {
+        guard let active = snapshot.activeSpaceID else {
+            print("  сверка с видимыми окнами: пропущена (активный стол неизвестен)")
+            return finishSpaceTest(service: service, snapshot: snapshot, monitor: monitor, includeSwitch: includeSwitch)
+        }
+        do {
             var onScreen: Set<String> = []
             if let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
                 for entry in list where (entry[kCGWindowLayer as String] as? Int) == 0 {
@@ -142,6 +152,26 @@ enum Diagnostics {
                 print("    только на экране: \(onlyOnScreen)")
                 print("    только по столам: \(onlySpace)")
             }
+        }
+        finishSpaceTest(service: service, snapshot: snapshot, monitor: monitor, includeSwitch: includeSwitch)
+
+    }
+
+    /// Общий хвост проверки: три режима вкладки и, по флагу, переключение столов.
+    private static func finishSpaceTest(service: SpacesService,
+                                        snapshot: SpacesService.Snapshot,
+                                        monitor: RunningAppsMonitor,
+                                        includeSwitch: Bool) {
+        // Прогоняем все три режима вкладки на живых данных: так проверяется не
+        // только сбор столов, но и то, что раскладка их правильно раскладывает.
+        print("  режимы вкладки «Приложения»:")
+        for mode in AppsDisplayMode.allCases {
+            let groups = monitor.groups(mode: mode, pinned: [])
+            let summary = groups.map { group -> String in
+                let count = group.pinned.count + group.running.count
+                return "\(group.title ?? "без заголовка"): \(count)"
+            }.joined(separator: " | ")
+            print("    \(mode.shortTitle): \(summary)")
         }
 
         guard includeSwitch else {

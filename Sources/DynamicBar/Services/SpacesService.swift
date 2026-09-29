@@ -49,6 +49,10 @@ final class SpacesService {
     private var connection: UInt32 = 0
     private(set) var isAvailable = false
 
+    /// Приватные вызовы трогают состояние соединения с оконным сервером,
+    /// поэтому все обращения к ним идут через одну очередь.
+    private let queue = DispatchQueue(label: "com.dynamicbar.spaces")
+
     init() {
         load()
     }
@@ -95,7 +99,11 @@ final class SpacesService {
 
     /// Столы основного дисплея в том порядке, в каком их показывает Mission Control.
     func spaces() -> [Space] {
-        let active = activeSpaceID()
+        queue.sync { spacesLocked() }
+    }
+
+    private func spacesLocked() -> [Space] {
+        let active = activeSpaceIDLocked()
         let raw = displayDictionaries().first?["Spaces"] as? [[String: Any]] ?? []
         return raw.enumerated().compactMap { offset, dict in
             guard let id = dict["id64"] as? Int else { return nil }
@@ -104,6 +112,10 @@ final class SpacesService {
     }
 
     func activeSpaceID() -> Int? {
+        queue.sync { activeSpaceIDLocked() }
+    }
+
+    private func activeSpaceIDLocked() -> Int? {
         guard let getActiveSpace, connection != 0 else { return nil }
         let value = getActiveSpace(connection)
         return value == 0 ? nil : Int(value)
@@ -133,11 +145,15 @@ final class SpacesService {
     /// результат пересекается со списком окон: нужны только обычные окна, иначе
     /// в столы попадут панели, обои и служебные окна.
     func snapshot() -> Snapshot {
+        queue.sync { snapshotLocked() }
+    }
+
+    private func snapshotLocked() -> Snapshot {
         var result = Snapshot()
         guard isAvailable else { return result }
 
-        result.spaces = spaces()
-        result.activeSpaceID = activeSpaceID()
+        result.spaces = spacesLocked()
+        result.activeSpaceID = activeSpaceIDLocked()
 
         var layerByNumber: [Int: Int] = [:]
         var pidByNumber: [Int: pid_t] = [:]
@@ -165,14 +181,18 @@ final class SpacesService {
     /// Перейти на указанный стол. Возвращает true, если система подтвердила переход.
     @discardableResult
     func switchTo(spaceID: Int) -> Bool {
+        queue.sync { switchToLocked(spaceID: spaceID) }
+    }
+
+    private func switchToLocked(spaceID: Int) -> Bool {
         guard let setCurrentSpace, connection != 0 else { return false }
-        if activeSpaceID() == spaceID { return true }
+        if activeSpaceIDLocked() == spaceID { return true }
         _ = setCurrentSpace(connection, displayIdentifier() as CFString, UInt64(spaceID))
         // Даём оконному серверу доехать: чтение сразу после вызова вернуло бы
         // прежний стол и проверка была бы ложной.
         for _ in 0..<12 {
             usleep(60_000)
-            if activeSpaceID() == spaceID { return true }
+            if activeSpaceIDLocked() == spaceID { return true }
         }
         Log.error("spaces: не удалось перейти на стол \(spaceID)")
         return false

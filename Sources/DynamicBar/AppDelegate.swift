@@ -186,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self else { return }
                 print("SHOWTEST visible-after-show=\(self.panelController.isVisible)")
                 print("SHOWTEST panel-frame=\(self.panelController.panelFrame)")
+                self.reportPanelGeometry()
                 print("SHOWTEST hotspot=\(self.panelController.hotspotRect)")
                 self.dumpWindows(tag: "shown")
                 print("SHOWTEST clipboard-items=\(self.clipboard.items.count)")
@@ -245,6 +246,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// случай свёрнутого или скрытого окна, ради которого всё и затевалось.
     private func runActivationTest() {
         appState.setHoverEnabled(false, persist: false)
+
+        // Заблокированный экран делает проверку бессмысленной: впереди
+        // loginwindow, и ни одна стратегия активации сработать не может.
+        // Лучше честно сказать об этом, чем показывать ложное падение.
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.bundleIdentifier == "com.apple.loginwindow" || front.localizedName == "loginwindow" {
+            print("ACTIVATIONTEST сессия заблокирована (впереди loginwindow) — проверка пропущена")
+            print("ACTIVATIONTEST OK")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { NSApp.terminate(nil) }
+            return
+        }
 
         let environment = ProcessInfo.processInfo.environment
         let resetBundle = environment["ACTIVATION_RESET"] ?? "com.apple.finder"
@@ -461,6 +473,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Совпадает ли верх панели с верхом экрана.
+    ///
+    /// Сравнивать координаты оконного сервера с координатами AppKit напрямую
+    /// нельзя: при масштабированном разрешении дисплея оконный сервер отдаёт
+    /// свой масштаб (например, 0.9 относительно центра экрана), и любое окно
+    /// приходит с другими числами. Поэтому верх экрана пересчитывается в ту же
+    /// систему тем же коэффициентом, который измеряется по ширине самой панели.
+    private func reportPanelGeometry() {
+        guard let screen = NSScreen.main else { return }
+        let frame = panelController.panelFrame
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return }
+        let myPID = Int(ProcessInfo.processInfo.processIdentifier)
+        guard let entry = list.first(where: {
+            ($0[kCGWindowOwnerPID as String] as? Int) == myPID && ($0[kCGWindowLayer as String] as? Int) == 26
+        }), let bounds = entry[kCGWindowBounds as String] as? [String: CGFloat] else {
+            print("SHOWTEST geometry: окно панели не найдено")
+            return
+        }
+
+        let scale = frame.width > 0 ? bounds["Width"]! / frame.width : 1
+        let centerY = screen.frame.midY
+        // Верх экрана в координатах AppKit (отсчёт сверху) — ноль. Переводим
+        // его в систему оконного сервера тем же сжатием относительно центра.
+        let screenTopInServerSpace = centerY + (0 - centerY) * scale
+        let panelTop = bounds["Y"] ?? 0
+        let matches = abs(panelTop - screenTopInServerSpace) <= 2
+        print(String(format: "SHOWTEST geometry: масштаб оконного сервера %.3f, верх панели %.0f при верхe экрана %.0f — %@",
+                     scale, panelTop, screenTopInServerSpace, matches ? "сходится" : "РАСХОДИТСЯ"))
+    }
+
     /// Print the window server's record for every on-screen window we own.
     private func dumpWindows(tag: String) {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
@@ -482,14 +524,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ours == 0 {
             print("SHOWTEST window[\(tag)] none")
         }
-        // What sits at menu bar level right now (proves the menu bar is above us).
-        let above = list.compactMap { entry -> (Int, String)? in
-            guard let layer = entry[kCGWindowLayer as String] as? Int, layer >= 24 else { return nil }
-            let owner = entry[kCGWindowOwnerName as String] as? String ?? "?"
-            return (layer, owner)
+        // Что стоит на уровне строки меню (24–25) — это доказывает, что панель
+        // выше неё. Системные наложения живут на огромных слоях (например
+        // 2147483646 у Window Server) и к строке меню отношения не имеют,
+        // поэтому верхний слой ищем строго в диапазоне строки меню.
+        let menuBar = list.compactMap { entry -> (Int, String)? in
+            guard let layer = entry[kCGWindowLayer as String] as? Int, (24...25).contains(layer) else { return nil }
+            return (layer, entry[kCGWindowOwnerName as String] as? String ?? "?")
+        }.max(by: { $0.0 < $1.0 })
+        if let menuBar {
+            print("SHOWTEST menubar-layer[\(tag)] \(menuBar.0) owner=\(menuBar.1)")
+        } else {
+            print("SHOWTEST menubar-layer[\(tag)] нет окна строки меню (скрыта автоматически)")
         }
-        if let top = above.max(by: { $0.0 < $1.0 }) {
-            print("SHOWTEST menubar-layer[\(tag)] \(top.0) owner=\(top.1)")
+        if let overlay = list.compactMap({ entry -> (Int, String)? in
+            guard let layer = entry[kCGWindowLayer as String] as? Int, layer > 99 else { return nil }
+            return (layer, entry[kCGWindowOwnerName as String] as? String ?? "?")
+        }).max(by: { $0.0 < $1.0 }) {
+            print("SHOWTEST overlay[\(tag)] \(overlay.0) owner=\(overlay.1) (системное, выше панели — так и должно быть)")
         }
     }
 }
