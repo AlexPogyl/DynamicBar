@@ -124,7 +124,32 @@ enum Diagnostics {
             print("    \(space.title)\(mark): \(apps.count) — \(apps.map(\.name).prefix(6).joined(separator: ", "))")
         }
         let orphans = monitor.entries.filter { monitor.spaces(of: $0.bundleID).isEmpty }
-        print("    без окон: \(orphans.count) — \(orphans.map(\.name).prefix(6).joined(separator: ", "))")
+        print("    без столов: \(orphans.count) — \(orphans.map(\.name).prefix(6).joined(separator: ", "))")
+
+        // Защита от регрессии, из-за которой пропадали свёрнутые приложения:
+        // у приложения есть окна, значит стол обязан определиться. Раньше
+        // свёрнутые окна не попадали в список окон стола, и приложение
+        // исчезало из вкладки.
+        var windowsByPID: [pid_t: Int] = [:]
+        if let raw = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] {
+            for entry in raw {
+                guard (entry[kCGWindowLayer as String] as? Int) == 0,
+                      let pid = entry[kCGWindowOwnerPID as String] as? Int else { continue }
+                let bounds = entry[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
+                guard (bounds["Width"] ?? 0) > 0, (bounds["Height"] ?? 0) > 0 else { continue }
+                windowsByPID[pid_t(pid), default: 0] += 1
+            }
+        }
+        let withWindows = monitor.entries.filter { entry in
+            guard let pid = entry.application?.processIdentifier else { return false }
+            return (windowsByPID[pid] ?? 0) > 0
+        }
+        let lost = withWindows.filter { monitor.spaces(of: $0.bundleID).isEmpty }
+        if lost.isEmpty {
+            print("  приложений с окнами: \(withWindows.count), потеряно без стола: 0 — верно")
+        } else {
+            print("  приложений с окнами: \(withWindows.count), потеряно без стола: \(lost.count) — ОШИБКА: \(lost.map(\.name))")
+        }
 
         // Сверка приватного API с публичным: список видимых сейчас окон не
         // требует никаких приватных вызовов и служит эталоном для активного
@@ -135,22 +160,26 @@ enum Diagnostics {
         }
         do {
             var onScreen: Set<String> = []
+            let listed = Set(monitor.entries.map(\.bundleID))
             if let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
                 for entry in list where (entry[kCGWindowLayer as String] as? Int) == 0 {
-                    if let pid = entry[kCGWindowOwnerPID as String] as? Int,
-                       let name = NSRunningApplication(processIdentifier: pid_t(pid))?.bundleIdentifier {
-                        onScreen.insert(name)
-                    }
+                    guard let pid = entry[kCGWindowOwnerPID as String] as? Int,
+                          let name = NSRunningApplication(processIdentifier: pid_t(pid))?.bundleIdentifier,
+                          // Своя панель живёт сразу на всех столах и в списке
+                          // приложений не участвует — сравнивать её не с чем.
+                          listed.contains(name) else { continue }
+                    onScreen.insert(name)
                 }
             }
             let bySpace = Set(monitor.entries.filter { monitor.spaces(of: $0.bundleID).contains(active) }.map(\.bundleID))
-            let onlyOnScreen = onScreen.subtracting(bySpace).sorted()
-            let onlySpace = bySpace.subtracting(onScreen).sorted()
-            let matches = onlyOnScreen.isEmpty && onlySpace.isEmpty
-            print("  сверка с видимыми окнами: \(matches ? "совпадает" : "РАСХОДИТСЯ") (\(bySpace.count) приложений)")
+            // Видимые окна — подмножество окон стола: у приложения на активном
+            // столе может быть и свёрнутое окно, которое на экране не видно.
+            // Ошибка — только обратное: окно видно, а стол не определён.
+            let visibleButUnknown = onScreen.subtracting(bySpace).sorted()
+            let matches = visibleButUnknown.isEmpty
+            print("  сверка с видимыми окнами: \(matches ? "совпадает" : "РАСХОДИТСЯ") (\(bySpace.count) на столе, \(onScreen.count) видно)")
             if !matches {
-                print("    только на экране: \(onlyOnScreen)")
-                print("    только по столам: \(onlySpace)")
+                print("    видно, но не приписано столу: \(visibleButUnknown)")
             }
         }
         finishSpaceTest(service: service, snapshot: snapshot, monitor: monitor, includeSwitch: includeSwitch)

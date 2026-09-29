@@ -6,7 +6,7 @@ import CoreGraphics
 /// Публичного способа узнать, на каком рабочем столе живёт окно, в macOS нет.
 /// SkyLight даёт всё нужное:
 ///   * `CGSCopyManagedDisplaySpaces` — список столов и активный из них,
-///   * `CGSCopyWindowsWithOptionsAndTags` — окна конкретного стола,
+///   * `CGSCopySpacesForWindows` — столы конкретного окна (строго по одному),
 ///   * `CGSManagedDisplaySetCurrentSpace` — переключение на стол.
 ///
 /// Разрешений это не требует. Если Apple уберёт символы, сервис просто
@@ -34,15 +34,13 @@ final class SpacesService {
 
     private typealias MainConnectionFn = @convention(c) () -> UInt32
     private typealias CopyManagedDisplaysFn = @convention(c) (UInt32) -> CFArray?
-    private typealias CopyWindowsFn = @convention(c) (UInt32, UInt32, CFArray?, UInt32,
-                                                      UnsafeMutablePointer<UInt64>?,
-                                                      UnsafeMutablePointer<UInt64>?) -> CFArray?
+    private typealias CopySpacesForWindowsFn = @convention(c) (UInt32, Int32, CFArray?) -> CFArray?
     private typealias GetActiveSpaceFn = @convention(c) (UInt32) -> UInt64
     private typealias SetCurrentSpaceFn = @convention(c) (UInt32, CFString?, UInt64) -> Int32
 
     private var mainConnection: MainConnectionFn?
     private var copyManagedDisplays: CopyManagedDisplaysFn?
-    private var copyWindows: CopyWindowsFn?
+    private var copySpacesForWindows: CopySpacesForWindowsFn?
     private var getActiveSpace: GetActiveSpaceFn?
     private var setCurrentSpace: SetCurrentSpaceFn?
 
@@ -69,7 +67,7 @@ final class SpacesService {
         }
         mainConnection = symbol("CGSMainConnectionID")
         copyManagedDisplays = symbol("CGSCopyManagedDisplaySpaces")
-        copyWindows = symbol("CGSCopyWindowsWithOptionsAndTags")
+        copySpacesForWindows = symbol("CGSCopySpacesForWindows")
         getActiveSpace = symbol("CGSGetActiveSpace")
         setCurrentSpace = symbol("CGSManagedDisplaySetCurrentSpace")
 
@@ -82,7 +80,7 @@ final class SpacesService {
         _ = copyManagedDisplays
         _ = getActiveSpace
         connection = mainConnection()
-        isAvailable = connection != 0 && copyWindows != nil && setCurrentSpace != nil
+        isAvailable = connection != 0 && copySpacesForWindows != nil && setCurrentSpace != nil
         Log.info("spaces: доступны=\(isAvailable), соединение=\(connection)")
     }
 
@@ -123,20 +121,23 @@ final class SpacesService {
 
     // MARK: - Окна по столам
 
-    /// Номера обычных окон (слой 0) на указанном столе.
-    private func windowNumbers(onSpace id: Int) -> [Int] {
-        guard let copyWindows, connection != 0 else { return [] }
-        let spaceArray = [NSNumber(value: id)] as CFArray
-        var setTags: UInt64 = 0
-        var clearTags: UInt64 = 0
-        guard let windows = copyWindows(connection, 0, spaceArray, 0, &setTags, &clearTags) else { return [] }
-        var numbers: [Int] = []
-        for index in 0..<CFArrayGetCount(windows) {
-            guard let raw = CFArrayGetValueAtIndex(windows, index),
-                  let number = (Unmanaged<AnyObject>.fromOpaque(raw).takeUnretainedValue() as? NSNumber)?.intValue else { continue }
-            numbers.append(number)
+    /// Столы, на которых живёт конкретное окно.
+    ///
+    /// Спрашивать надо строго по одному окну. Если передать массив из сотни
+    /// окон, `CGSCopySpacesForWindows` молча возвращает почти пустой результат —
+    /// на этом я и потерял все свёрнутые окна: приложение, чьи окна свёрнуты,
+    /// не попадало ни в один стол и пропадало из вкладки.
+    private func spacesForWindow(_ number: Int) -> [Int] {
+        guard let copySpacesForWindows, connection != 0 else { return [] }
+        let windowArray = [NSNumber(value: number)] as CFArray
+        guard let result = copySpacesForWindows(connection, 7, windowArray) else { return [] }
+        var spaces: [Int] = []
+        for index in 0..<CFArrayGetCount(result) {
+            guard let raw = CFArrayGetValueAtIndex(result, index),
+                  let value = (Unmanaged<AnyObject>.fromOpaque(raw).takeUnretainedValue() as? NSNumber)?.intValue else { continue }
+            spaces.append(value)
         }
-        return numbers
+        return spaces
     }
 
     /// Полный снимок: столы, активный стол и какие процессы на каких столах.
@@ -155,22 +156,24 @@ final class SpacesService {
         result.spaces = spacesLocked()
         result.activeSpaceID = activeSpaceIDLocked()
 
-        var layerByNumber: [Int: Int] = [:]
-        var pidByNumber: [Int: pid_t] = [:]
-        if let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] {
-            for entry in list {
-                guard let number = entry[kCGWindowNumber as String] as? Int else { continue }
-                layerByNumber[number] = entry[kCGWindowLayer as String] as? Int ?? -1
-                if let pid = entry[kCGWindowOwnerPID as String] as? Int { pidByNumber[number] = pid_t(pid) }
-            }
+        // Идём от окон к столам, а не наоборот: так в раскладку попадают и
+        // свёрнутые окна, которые в списке окон стола не появляются вовсе.
+        guard let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+            return result
         }
+        for entry in list {
+            guard (entry[kCGWindowLayer as String] as? Int) == 0,
+                  let number = entry[kCGWindowNumber as String] as? Int,
+                  let pid = entry[kCGWindowOwnerPID as String] as? Int else { continue }
+            let bounds = entry[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
+            guard (bounds["Width"] ?? 0) > 0, (bounds["Height"] ?? 0) > 0 else { continue }
 
-        for space in result.spaces {
-            for number in windowNumbers(onSpace: space.id) {
-                guard layerByNumber[number] == 0, let pid = pidByNumber[number] else { continue }
-                var list = result.spacesByPID[pid] ?? []
-                if !list.contains(space.id) { list.append(space.id) }
-                result.spacesByPID[pid] = list.sorted()
+            var spaces = result.spacesByPID[pid_t(pid)] ?? []
+            for space in spacesForWindow(number) where !spaces.contains(space) {
+                spaces.append(space)
+            }
+            if spaces != result.spacesByPID[pid_t(pid)] {
+                result.spacesByPID[pid_t(pid)] = spaces.sorted()
             }
         }
         return result
