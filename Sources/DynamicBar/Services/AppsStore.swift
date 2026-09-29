@@ -187,29 +187,53 @@ struct AppEntry: Identifiable, Equatable {
     }
 }
 
-/// Список запущенных приложений с обновлением по уведомлениям рабочего стола.
+/// Список запущенных приложений с обновлением по уведомлениям рабочего стола,
+/// плюс раскладка по рабочим столам (Spaces).
 final class RunningAppsMonitor: ObservableObject {
     @Published private(set) var entries: [AppEntry] = []
+    @Published private(set) var spaces: [SpacesService.Space] = []
+    @Published private(set) var activeSpaceID: Int?
+    /// Для каждого приложения — столы, на которых у него есть обычные окна.
+    @Published private(set) var spacesByBundle: [String: [Int]] = [:]
 
     var applications: [NSRunningApplication] { entries.compactMap(\.application) }
 
+    let spacesService = SpacesService()
     private var observers: [NSObjectProtocol] = []
 
     init() {
         refresh()
         let center = NSWorkspace.shared.notificationCenter
-        let names: [Notification.Name] = [
+        var names: [Notification.Name] = [
             NSWorkspace.didLaunchApplicationNotification,
             NSWorkspace.didTerminateApplicationNotification,
             NSWorkspace.didHideApplicationNotification,
             NSWorkspace.didUnhideApplicationNotification,
+            NSWorkspace.activeSpaceDidChangeNotification,
         ]
+        if #available(macOS 13.0, *) {
+            names.append(NSWorkspace.didActivateApplicationNotification)
+        }
         for name in names {
             let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.refresh()
             }
             observers.append(observer)
         }
+    }
+
+    /// Столы, на которых есть окна приложения.
+    func spaces(of bundleID: String) -> [Int] {
+        spacesByBundle[bundleID] ?? []
+    }
+
+    /// Стол, на который нужно перейти, чтобы увидеть окно приложения.
+    /// nil — приложение уже на активном столе или его окон не найти.
+    func spaceToReveal(bundleID: String) -> Int? {
+        let list = spaces(of: bundleID)
+        guard !list.isEmpty else { return nil }
+        if let active = activeSpaceID, list.contains(active) { return nil }
+        return list.first
     }
 
     deinit {
@@ -239,6 +263,43 @@ final class RunningAppsMonitor: ObservableObject {
         if result.map(\.bundleID) != entries.map(\.bundleID) {
             entries = result
         }
+
+        refreshSpaces()
+    }
+
+    /// Отдельный проход по рабочим столам: он заметно дороже списка приложений,
+    /// поэтому вызывается из того же refresh, но не дублируется.
+    private func refreshSpaces() {
+        guard spacesService.isAvailable else {
+            if !spaces.isEmpty {
+                spaces = []
+                activeSpaceID = nil
+                spacesByBundle = [:]
+            }
+            return
+        }
+        let snapshot = spacesService.snapshot()
+        if spaces != snapshot.spaces { spaces = snapshot.spaces }
+        if activeSpaceID != snapshot.activeSpaceID { activeSpaceID = snapshot.activeSpaceID }
+
+        var byBundle: [String: [Int]] = [:]
+        for entry in entries {
+            guard let app = entry.application else { continue }
+            if let list = snapshot.spacesByPID[app.processIdentifier] {
+                byBundle[entry.bundleID] = list
+            }
+        }
+        if byBundle != spacesByBundle { spacesByBundle = byBundle }
+    }
+
+    /// Раскладка вкладки для текущего режима.
+    func groups(mode: AppsDisplayMode, pinned: [PinnedItem]) -> [AppsGroup] {
+        AppsGrouping.groups(mode: mode,
+                            pinned: pinned,
+                            running: entries,
+                            spacesByBundle: spacesByBundle,
+                            spaces: spaces,
+                            activeSpaceID: activeSpaceID)
     }
 
     private var isPreview = false
@@ -257,5 +318,26 @@ final class RunningAppsMonitor: ObservableObject {
                             application: nil)
         }
         Log.debug("apps: загружен демонстрационный список из \(entries.count) приложений")
+    }
+
+    /// Демонстрационная раскладка по столам — чтобы скриншот третьего режима
+    /// не показывал настоящие рабочие столы пользователя.
+    func loadPreviewSpaces() {
+        isPreview = true
+        spaces = [
+            SpacesService.Space(id: 1, index: 1, isActive: true),
+            SpacesService.Space(id: 2, index: 2, isActive: false),
+        ]
+        activeSpaceID = 1
+        spacesByBundle = [
+            "demo.Safari": [1],
+            "demo.Mail": [1],
+            "demo.Messages": [1],
+            "demo.Notes": [2],
+            "demo.Music": [2],
+            "demo.Photos": [2],
+            "demo.Calendar": [2],
+        ]
+        Log.debug("apps: загружена демонстрационная раскладка по столам")
     }
 }

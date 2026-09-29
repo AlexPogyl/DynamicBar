@@ -103,6 +103,9 @@ final class AppState: ObservableObject {
     /// Показывать ли иконку в строке меню.
     @Published private(set) var showMenuBarIcon: Bool = true
 
+    /// Как вкладка «Приложения» показывает запущенные приложения.
+    @Published private(set) var appsDisplayMode: AppsDisplayMode = .all
+
     /// Открыто ли сейчас окно настроек. Нужно панели: она не должна снимать
     /// активацию приложения, пока на экране чужое окно, которому нужен фокус.
     var isSettingsVisible: Bool = false
@@ -133,6 +136,7 @@ final class AppState: ObservableObject {
     private enum Key {
         static let hoverEnabled = "hoverEnabled"
         static let showMenuBarIcon = "showMenuBarIcon"
+        static let appsDisplayMode = "appsDisplayMode"
         static let placement = "panelPlacement"
         static let animationStyle = "animationStyle"
     }
@@ -144,6 +148,9 @@ final class AppState: ObservableObject {
         }
         if defaults.object(forKey: Key.showMenuBarIcon) != nil {
             showMenuBarIcon = defaults.bool(forKey: Key.showMenuBarIcon)
+        }
+        if let raw = defaults.string(forKey: Key.appsDisplayMode), let mode = AppsDisplayMode(rawValue: raw) {
+            appsDisplayMode = mode
         }
         // Испорченное сочетание из прошлых версий: приложение осталось бы без
         // единого способа открыть настройки.
@@ -181,6 +188,12 @@ final class AppState: ObservableObject {
         if !enabled && !showMenuBarIcon { return }
         hoverEnabled = enabled
         if persist { defaults.set(enabled, forKey: Key.hoverEnabled) }
+    }
+
+    func setAppsDisplayMode(_ mode: AppsDisplayMode, persist: Bool = true) {
+        guard appsDisplayMode != mode else { return }
+        appsDisplayMode = mode
+        if persist { defaults.set(mode.rawValue, forKey: Key.appsDisplayMode) }
     }
 
     func setShowMenuBarIcon(_ visible: Bool, persist: Bool = true) {

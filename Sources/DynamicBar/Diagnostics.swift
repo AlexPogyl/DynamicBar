@@ -84,6 +84,86 @@ enum Diagnostics {
         print("MUSICTEST OK (transport commands dispatched, no crash)")
     }
 
+    // MARK: - Рабочие столы
+
+    /// `--spacetest [--switch]`: проверить, что приватные API рабочих столов
+    /// работают и что приложения раскладываются по столам.
+    ///
+    /// Переключение столов заметно на экране, поэтому выполняется только с
+    /// явным `--switch`: при обычном прогоне проверок экран не дёргается.
+    static func spaceTest(includeSwitch: Bool) {
+        print("DynamicBar: рабочие столы")
+        let service = SpacesService()
+        print("  доступны:        \(service.isAvailable)")
+        guard service.isAvailable else {
+            print("SPACETEST OK (недоступны — вкладка вернётся к показу всех приложений)")
+            return
+        }
+
+        let snapshot = service.snapshot()
+        print("  столов:          \(snapshot.spaces.count)")
+        for space in snapshot.spaces {
+            let mark = space.isActive ? " ← активный" : ""
+            print("    \(space.title) (id \(space.id))\(mark)")
+        }
+        print("  активный стол:   \(snapshot.activeSpaceID.map(String.init) ?? "неизвестен")")
+
+        // Раскладка тем же путём, которым пользуется вкладка.
+        let monitor = RunningAppsMonitor()
+        monitor.refresh()
+        print("  приложений:      \(monitor.entries.count)")
+        for space in monitor.spaces {
+            let apps = monitor.entries.filter { monitor.spaces(of: $0.bundleID).contains(space.id) }
+            let mark = space.isActive ? " (активный)" : ""
+            print("    \(space.title)\(mark): \(apps.count) — \(apps.map(\.name).prefix(6).joined(separator: ", "))")
+        }
+        let orphans = monitor.entries.filter { monitor.spaces(of: $0.bundleID).isEmpty }
+        print("    без окон: \(orphans.count) — \(orphans.map(\.name).prefix(6).joined(separator: ", "))")
+
+        // Сверка приватного API с публичным: список видимых сейчас окон не
+        // требует никаких приватных вызовов и служит эталоном для активного
+        // стола. Если они расходятся — доверять раскладке нельзя.
+        if let active = snapshot.activeSpaceID {
+            var onScreen: Set<String> = []
+            if let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] {
+                for entry in list where (entry[kCGWindowLayer as String] as? Int) == 0 {
+                    if let pid = entry[kCGWindowOwnerPID as String] as? Int,
+                       let name = NSRunningApplication(processIdentifier: pid_t(pid))?.bundleIdentifier {
+                        onScreen.insert(name)
+                    }
+                }
+            }
+            let bySpace = Set(monitor.entries.filter { monitor.spaces(of: $0.bundleID).contains(active) }.map(\.bundleID))
+            let onlyOnScreen = onScreen.subtracting(bySpace).sorted()
+            let onlySpace = bySpace.subtracting(onScreen).sorted()
+            let matches = onlyOnScreen.isEmpty && onlySpace.isEmpty
+            print("  сверка с видимыми окнами: \(matches ? "совпадает" : "РАСХОДИТСЯ") (\(bySpace.count) приложений)")
+            if !matches {
+                print("    только на экране: \(onlyOnScreen)")
+                print("    только по столам: \(onlySpace)")
+            }
+        }
+
+        guard includeSwitch else {
+            print("  (переключение столов не проверялось — нужен флаг --switch)")
+            print("SPACETEST OK")
+            return
+        }
+
+        guard let active = snapshot.activeSpaceID,
+              let other = snapshot.spaces.first(where: { $0.id != active }) else {
+            print("  второго стола нет — переключение проверить не на чем")
+            print("SPACETEST OK")
+            return
+        }
+        print("  перехожу на \(other.title) и обратно…")
+        let switched = service.switchTo(spaceID: other.id)
+        print("    переход: \(switched ? "СРАБОТАЛО" : "не сработало")")
+        let restored = service.switchTo(spaceID: active)
+        print("    возврат: \(restored ? "СРАБОТАЛО" : "НЕ СРАБОТАЛО")")
+        print("SPACETEST OK")
+    }
+
     // MARK: - Переводчик
 
     /// `--translatestest [--builtin]`: реальные запросы в источники перевода.

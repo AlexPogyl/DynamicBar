@@ -390,7 +390,77 @@ enum StoreTest {
               "icon=\(repaired.showMenuBarIcon) hover=\(repaired.hoverEnabled)")
         UserDefaults.standard.removePersistentDomain(forName: appSuite)
 
-        // 16 — empty snippets are rejected.
+        // 16 — раскладка вкладки «Приложения» по режимам.
+        let spaceOne = SpacesService.Space(id: 1, index: 1, isActive: true)
+        let spaceTwo = SpacesService.Space(id: 96, index: 2, isActive: false)
+        let spaceThree = SpacesService.Space(id: 97, index: 3, isActive: false)
+        func entry(_ id: String) -> AppEntry {
+            AppEntry(bundleID: id, name: id, icon: nil, application: nil)
+        }
+        let running = [entry("a.safari"), entry("b.mail"), entry("c.notes"), entry("d.terminal")]
+        let spacesByBundle: [String: [Int]] = [
+            "a.safari": [1],
+            "b.mail": [1],
+            "c.notes": [96],
+            "d.terminal": [],
+        ]
+        let pinnedSample = [PinnedItem(kind: .link, title: "github.com", url: "https://github.com")]
+
+        let all = AppsGrouping.groups(mode: .all, pinned: pinnedSample, running: running,
+                                      spacesByBundle: spacesByBundle,
+                                      spaces: [spaceOne, spaceTwo, spaceThree],
+                                      activeSpaceID: 1)
+        check("режим «все» даёт одну группу без заголовка",
+              all.count == 1 && all[0].title == nil, "групп: \(all.count)")
+        check("в режиме «все» видны все приложения и закладки",
+              all[0].running.count == 4 && all[0].pinned.count == 1,
+              "приложений \(all[0].running.count), закладок \(all[0].pinned.count)")
+
+        let activeOnly = AppsGrouping.groups(mode: .activeSpace, pinned: pinnedSample, running: running,
+                                             spacesByBundle: spacesByBundle,
+                                             spaces: [spaceOne, spaceTwo, spaceThree],
+                                             activeSpaceID: 1)
+        check("режим «активный стол» даёт закладки и активный стол",
+              activeOnly.count == 2 && activeOnly[0].id == AppsGrouping.pinnedGroupID,
+              "групп: \(activeOnly.count)")
+        check("в режиме «активный стол» остаются только приложения этого стола",
+              Set(activeOnly[1].running.map { $0.bundleID }) == ["a.safari", "b.mail"],
+              "\(activeOnly[1].running.map { $0.bundleID })")
+
+        let bySpace = AppsGrouping.groups(mode: .bySpace, pinned: pinnedSample, running: running,
+                                          spacesByBundle: spacesByBundle,
+                                          spaces: [spaceOne, spaceTwo, spaceThree],
+                                          activeSpaceID: 1)
+        let titles = bySpace.compactMap(\.title)
+        check("режим «по столам» начинается с закладок",
+              bySpace.first?.id == AppsGrouping.pinnedGroupID, "\(titles)")
+        check("активный стол идёт первым и помечен",
+              bySpace.count > 1 && bySpace[1].isActiveSpace && bySpace[1].title?.contains("активный") == true,
+              "\(titles)")
+        check("пустой стол не показывается", !titles.contains("Стол 3"), "\(titles)")
+        check("второй стол показан со своими приложениями",
+              bySpace.contains { $0.title == "Стол 2" && $0.running.map { $0.bundleID } == ["c.notes"] },
+              "\(titles)")
+        check("приложение без окон попадает в отдельную группу",
+              bySpace.last?.id == AppsGrouping.orphanGroupID
+                && bySpace.last?.running.map { $0.bundleID } == ["d.terminal"],
+              "\(bySpace.last?.running.map { $0.bundleID } ?? [])")
+
+        let noActive = AppsGrouping.groups(mode: .bySpace, pinned: pinnedSample, running: running,
+                                           spacesByBundle: spacesByBundle,
+                                           spaces: [spaceOne, spaceTwo],
+                                           activeSpaceID: nil)
+        check("без известного активного стола раскладка не ломается",
+              noActive.count == 4 && noActive[1].running.count == 2 && !noActive[1].isActiveSpace,
+              "групп \(noActive.count), в первой \(noActive.count > 1 ? noActive[1].running.count : -1)")
+
+        let noSpaces = AppsGrouping.groups(mode: .activeSpace, pinned: pinnedSample, running: running,
+                                           spacesByBundle: spacesByBundle, spaces: [], activeSpaceID: nil)
+        check("при недоступных столах режим 2 показывает все приложения",
+              noSpaces.count == 2 && noSpaces[1].running.count == 4,
+              "приложений \(noSpaces.count > 1 ? noSpaces[1].running.count : -1)")
+
+        // 17 — empty snippets are rejected.
         let countBeforeEmptyAdd = snippets.snippets.count
         snippets.add(title: "nope", body: "   \n  ")
         check("empty snippet rejected", snippets.snippets.count == countBeforeEmptyAdd, "count=\(snippets.snippets.count)")

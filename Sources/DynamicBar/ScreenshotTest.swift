@@ -56,6 +56,9 @@ enum ScreenshotTest {
 
         let runningApps = RunningAppsMonitor()
         runningApps.loadPreviewApplications()
+        runningApps.loadPreviewSpaces()
+        // Для картинки в README показываем самый содержательный режим.
+        appState.setAppsDisplayMode(.bySpace, persist: false)
 
         let translation = TranslationService(defaults: UserDefaults(suiteName: "com.dynamicbar.screenshottest") ?? .standard)
         translation.input = "The panel slides out from the very top of the screen."
@@ -96,6 +99,21 @@ enum ScreenshotTest {
             RenderTest.write(image, to: directory.appendingPathComponent("panel-\(tab.rawValue).png"))
             print("SCREENSHOT wrote panel-\(tab.rawValue).png")
         }
+
+        // Отдельно — тот же стол в режиме «все», чтобы было видно разницу.
+        appState.setAppsDisplayMode(.all, persist: false)
+        if let appsAll = RenderTest.image(
+            root: PanelRootView(appState: appState,
+                                clipboard: clipboard, snippets: snippets, notes: notes,
+                                apps: apps, runningApps: runningApps, translation: translation,
+                                nowPlaying: nowPlaying, volume: volume, tabSettings: tabSettings),
+            size: size,
+            appearance: .darkAqua
+        ) {
+            RenderTest.write(appsAll, to: directory.appendingPathComponent("panel-apps-all.png"))
+            print("SCREENSHOT wrote panel-apps-all.png")
+        }
+        appState.setAppsDisplayMode(.bySpace, persist: false)
 
         appState.isEditingText = false
         if let settings = RenderTest.image(

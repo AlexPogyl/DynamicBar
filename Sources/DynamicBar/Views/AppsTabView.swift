@@ -25,7 +25,7 @@ struct AppsTabView: View {
                 Divider().opacity(0.25)
             }
 
-            if store.pinned.isEmpty && monitor.applications.isEmpty {
+            if groups.allSatisfy(\.isEmpty) {
                 EmptyStateView(
                     symbol: "square.grid.2x2",
                     title: "Нет запущенных приложений",
@@ -93,13 +93,22 @@ struct AppsTabView: View {
 
     // MARK: - Сетка
 
+    private var groups: [AppsGroup] {
+        monitor.groups(mode: appState.appsDisplayMode, pinned: store.pinned)
+    }
+
     private var grid: some View {
         ScrollView {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: cellSide, maximum: cellSide), spacing: 6)],
-                spacing: 6
-            ) {
-                ForEach(store.pinned) { item in
+            LazyVStack(alignment: .leading, spacing: 10) {
+                ForEach(groups) { group in
+                    if let title = group.title {
+                        groupHeader(title: title, group: group)
+                    }
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: cellSide, maximum: cellSide), spacing: 6)],
+                        spacing: 6
+                    ) {
+                ForEach(group.pinned) { item in
                     PinnedCell(
                         item: item,
                         icon: store.icon(for: item),
@@ -113,7 +122,7 @@ struct AppsTabView: View {
                     )
                 }
 
-                ForEach(monitor.entries) { entry in
+                ForEach(group.running) { entry in
                     RunningCell(
                         entry: entry,
                         side: iconSide,
@@ -122,10 +131,34 @@ struct AppsTabView: View {
                         pin: { if let app = entry.application { store.pin(app) } }
                     )
                 }
+                    }
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Заголовок группы. Активный стол помечен точкой — по ней видно, куда
+    /// вернёт клик по приложению из другой группы.
+    private func groupHeader(title: String, group: AppsGroup) -> some View {
+        HStack(spacing: 6) {
+            if group.isActiveSpace {
+                Circle()
+                    .fill(Color.green.opacity(0.9))
+                    .frame(width: 6, height: 6)
+            }
+            Text(title)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(group.isActiveSpace ? Color.primary : Color.secondary)
+            Text("\(group.pinned.count + group.running.count)")
+                .font(.system(size: 9.5))
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 2)
     }
 
     // MARK: - Действия
@@ -178,9 +211,11 @@ struct AppsTabView: View {
             appState.requestHide()
         case .application:
             // Закрытое закреплённое приложение запускаем — так решил
-            // пользователь, иначе иконка была бы мёртвой.
+            // пользователь, иначе иконка была бы мёртвой. Запущенное поднимаем,
+            // а если его окно на другом столе — переходим на этот стол:
+            // создать новое окно на текущем macOS снаружи не даёт.
             if let running = store.runningApplication(for: item) {
-                activate(running)
+                reveal(running, bundleID: item.bundleID ?? "")
             } else {
                 appState.requestHide()
                 AppActivator.launch(bundleID: item.bundleID ?? "", path: item.path, reason: "pinned")
@@ -188,8 +223,6 @@ struct AppsTabView: View {
         }
     }
 
-    /// Панель скрывается сразу: приложение уже поднимается, и ждать, пока
-    /// уедет панель, незачем — иначе клик ощущается вялым.
     /// Приложение из сетки: запущенное поднимаем, демонстрационное — просто
     /// показываем тостом (в демо-режиме кликать нечего).
     private func openRunning(_ entry: AppEntry) {
@@ -200,12 +233,32 @@ struct AppsTabView: View {
             appState.showToast("Демонстрационный режим")
             return
         }
-        activate(application)
+        reveal(application, bundleID: entry.bundleID)
     }
 
-    private func activate(_ application: NSRunningApplication) {
+    /// Панель скрывается сразу: приложение уже поднимается, и ждать, пока
+    /// уедет панель, незачем — иначе клик ощущается вялым.
+    ///
+    /// Если окно приложения на другом рабочем столе, сначала переходим туда.
+    /// Переключение стола — синхронный вызов с ожиданием подтверждения, на
+    /// главном потоке он подвесил бы панель, поэтому уходит в фон.
+    private func reveal(_ application: NSRunningApplication, bundleID: String) {
         appState.requestHide()
-        AppActivator.bringToFront(application, reason: "apps-tab")
+        guard let target = monitor.spaceToReveal(bundleID: bundleID) else {
+            AppActivator.bringToFront(application, reason: "apps-tab")
+            return
+        }
+        Log.info("apps: окно на столе \(target), перехожу туда")
+        let service = monitor.spacesService
+        DispatchQueue.global(qos: .userInitiated).async {
+            let switched = service.switchTo(spaceID: target)
+            DispatchQueue.main.async {
+                if !switched {
+                    Log.error("apps: перейти на стол \(target) не удалось")
+                }
+                AppActivator.bringToFront(application, reason: "apps-space")
+            }
+        }
     }
 }
 

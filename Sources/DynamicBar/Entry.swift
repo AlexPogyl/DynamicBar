@@ -39,6 +39,11 @@ enum DynamicBarMain {
             exit(0)
         }
 
+        if args.contains("--spacetest") {
+            Diagnostics.spaceTest(includeSwitch: args.contains("--switch"))
+            exit(0)
+        }
+
         if args.contains("--translatestest") {
             Diagnostics.translationTest(includeBuiltIn: args.contains("--builtin"))
             exit(0)

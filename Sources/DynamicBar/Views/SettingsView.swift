@@ -191,6 +191,28 @@ struct SettingsView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Вкладка «Приложения»")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { appState.appsDisplayMode },
+                    set: { appState.setAppsDisplayMode($0) }
+                )) {
+                    ForEach(AppsDisplayMode.allCases) { mode in
+                        Text(mode.shortTitle).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(appState.appsDisplayMode.explanation)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Divider()
+
             Toggle("Запускать при входе в систему", isOn: Binding(
                 get: { launchAtLogin },
                 set: { newValue in

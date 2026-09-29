@@ -102,6 +102,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
         }
 
+        // Рабочие столы и список приложений меняются, пока панель закрыта:
+        // обновляем их к каждому открытию.
+        NotificationCenter.default.addObserver(forName: .dynamicBarPanelDidShow, object: nil, queue: .main) { [weak self] _ in
+            self?.runningApps.refresh()
+        }
+
         if let first = tabSettings.firstVisibleTab, !tabSettings.orderedVisibleTabs.contains(appState.selectedTab) {
             appState.selectedTab = first
         }

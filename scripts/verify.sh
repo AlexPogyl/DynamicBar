@@ -258,6 +258,19 @@ check $? "нельзя остаться без единого способа о�
 grep -q "иконка возвращена: да" "$OUT/geartest.log"; check $? "иконка возвращается на место"
 grep "GEARTEST" "$OUT/geartest.log" | sed 's/^/      /'
 
+# --- рабочие столы -----------------------------------------------------------
+step "7a1. Рабочие столы (Spaces)"
+DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --spacetest > "$OUT/spacetest.log" 2>&1
+check $? "--spacetest exits 0"
+grep -q "SPACETEST OK" "$OUT/spacetest.log"; check $? "проверка рабочих столов дошла до конца"
+if grep -q "доступны:        false" "$OUT/spacetest.log"; then
+  ok "приватные API столов недоступны — вкладка работает в режиме «все»"
+else
+  grep -q "сверка с видимыми окнами: совпадает" "$OUT/spacetest.log"
+  check $? "раскладка по столам совпадает с публичным списком видимых окон"
+  grep -E "столов:|активный стол:|Стол [0-9]+\(активный\)|без окон:" "$OUT/spacetest.log" | sed 's/^/      /'
+fi
+
 # --- активация приложений ----------------------------------------------------
 step "7a2. Клик по приложению выводит его вперёд"
 DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --activationtest > "$OUT/activationtest.log" 2>&1
