@@ -43,6 +43,8 @@ enum RenderTest {
         notes.select(notes.notes.first!)
         let nowPlaying = NowPlayingService()
         nowPlaying.applyPreviewSample()
+        let agent = AgentStore()
+        agent.applyPreviewSample()
         // ClipboardStore loads persisted history in init; for a deterministic
         // preview we only want the sample rows.
         clipboard.clearEverything()
@@ -73,7 +75,7 @@ enum RenderTest {
                 appState.isPinned = (tab == .clipboard)
                 let url = directory.appendingPathComponent("panel-\(label)-\(tab.rawValue).png")
                 render(
-                    root: PanelRootView(appState: appState, clipboard: clipboard, snippets: snippets, notes: notes, apps: apps, runningApps: runningApps, translation: translation, nowPlaying: nowPlaying, volume: volume, tabSettings: tabSettings),
+                    root: PanelRootView(appState: appState, clipboard: clipboard, snippets: snippets, notes: notes, apps: apps, runningApps: runningApps, translation: translation, nowPlaying: nowPlaying, volume: volume, tabSettings: tabSettings, agent: agent),
                     size: size,
                     appearance: appearance,
                     to: url
@@ -84,7 +86,7 @@ enum RenderTest {
             appState.selectedTab = .snippets
             appState.isEditingText = true
             let url = directory.appendingPathComponent("panel-\(label)-snippets-editing.png")
-            renderEditor(size: size, appearance: appearance, to: url, appState: appState, snippets: snippets, notes: notes, clipboard: clipboard, volume: volume, apps: apps, runningApps: runningApps, translation: translation, tabSettings: tabSettings)
+            renderEditor(size: size, appearance: appearance, to: url, appState: appState, snippets: snippets, notes: notes, clipboard: clipboard, volume: volume, apps: apps, runningApps: runningApps, translation: translation, tabSettings: tabSettings, agent: agent)
             print("RENDERTEST wrote \(url.path)")
 
             // Music tab with no readable metadata — the state most users will see
@@ -95,7 +97,7 @@ enum RenderTest {
             emptyMusicService.setDetectedPlayerForPreview("Яндекс Музыка")
             let emptyURL = directory.appendingPathComponent("panel-\(label)-music-nometadata.png")
             render(
-                root: PanelRootView(appState: appState, clipboard: clipboard, snippets: snippets, notes: notes, apps: apps, runningApps: runningApps, translation: translation, nowPlaying: emptyMusicService, volume: volume, tabSettings: tabSettings),
+                root: PanelRootView(appState: appState, clipboard: clipboard, snippets: snippets, notes: notes, apps: apps, runningApps: runningApps, translation: translation, nowPlaying: emptyMusicService, volume: volume, tabSettings: tabSettings, agent: agent),
                 size: size,
                 appearance: appearance,
                 to: emptyURL
@@ -108,7 +110,7 @@ enum RenderTest {
             let label = appearance == .darkAqua ? "dark" : "light"
             let url = directory.appendingPathComponent("settings-\(label).png")
             render(
-                root: SettingsView(tabSettings: tabSettings, appState: appState, translation: translation),
+                root: SettingsView(tabSettings: tabSettings, appState: appState, translation: translation, agent: agent),
                 size: NSSize(width: 460, height: 520),
                 appearance: appearance,
                 to: url
@@ -119,9 +121,9 @@ enum RenderTest {
         print("RENDERTEST OK")
     }
 
-    private static func renderEditor(size: NSSize, appearance: NSAppearance.Name, to url: URL, appState: AppState, snippets: SnippetStore, notes: NoteStore, clipboard: ClipboardStore, volume: SystemVolume, apps: AppsStore, runningApps: RunningAppsMonitor, translation: TranslationService, tabSettings: TabSettings) {
+    private static func renderEditor(size: NSSize, appearance: NSAppearance.Name, to url: URL, appState: AppState, snippets: SnippetStore, notes: NoteStore, clipboard: ClipboardStore, volume: SystemVolume, apps: AppsStore, runningApps: RunningAppsMonitor, translation: TranslationService, tabSettings: TabSettings, agent: AgentStore) {
         render(
-            root: PanelRootView(appState: appState, clipboard: clipboard, snippets: snippets, notes: notes, apps: apps, runningApps: runningApps, translation: translation, nowPlaying: NowPlayingService(), volume: volume, tabSettings: tabSettings),
+            root: PanelRootView(appState: appState, clipboard: clipboard, snippets: snippets, notes: notes, apps: apps, runningApps: runningApps, translation: translation, nowPlaying: NowPlayingService(), volume: volume, tabSettings: tabSettings, agent: agent),
             size: size,
             appearance: appearance,
             to: url

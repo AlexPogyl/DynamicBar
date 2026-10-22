@@ -481,6 +481,70 @@ enum StoreTest {
         snippets.add(title: "nope", body: "   \n  ")
         check("empty snippet rejected", snippets.snippets.count == countBeforeEmptyAdd, "count=\(snippets.snippets.count)")
 
+        // 19 — вкладка «Агент»: разбор снимка и форматирование.
+        let sampleJSON = """
+        {
+          "schemaVersion": 1,
+          "updatedAt": 1792693210698,
+          "collector": {"version": "1.0.0", "tookMs": 142, "warnings": []},
+          "agent": {
+            "dshRunning": true,
+            "status": "working",
+            "sessions": [
+              {"id": "session-1", "project": "DynamicBar", "title": "Вкладка «Агент»",
+               "task": "Сделать вкладку", "tool": "bash",
+               "startedAt": 1792690000000, "lastEventAt": 1792693210000, "status": "working"}
+            ]
+          },
+          "today": {"date": "2026-10-22", "input": 146661, "output": 71770,
+                    "cacheRead": 5022592, "cacheWrite": 0,
+                    "billable": 218431, "total": 5241023, "sessions": 2},
+          "balance": {
+            "available": true, "at": 1792693210000,
+            "wallets": [{"currency": "CNY", "total": 26.67, "granted": 0, "toppedUp": 26.67}],
+            "rub": 323.93, "walletRub": {"CNY": 323.93},
+            "rates": {"CNY": 12.146, "USD": 81.126, "EUR": 91.136},
+            "ratesAt": 1792693210000, "ratesDate": "22.10.2026", "ratesSource": "ЦБ РФ",
+            "converted": {"CNY": 26.67, "USD": 3.99, "EUR": 3.55}
+          }
+        }
+        """
+        do {
+            let snapshot = try JSONDecoder().decode(AgentSnapshot.self, from: Data(sampleJSON.utf8))
+            check("agent snapshot decodes", snapshot.schemaVersion == AgentSnapshot.supportedSchemaVersion)
+            check("agent status is working", snapshot.status == .working, "got=\(snapshot.status.rawValue)")
+            check("agent sessions parsed", snapshot.sessions.count == 1, "got=\(snapshot.sessions.count)")
+            check("agent session title", snapshot.sessions.first?.title == "Вкладка «Агент»")
+            check("agent billable tokens", snapshot.today?.billable == 218_431, "got=\(snapshot.today?.billable ?? -1)")
+            check("agent rub total", snapshot.rubTotal == 323.93, "got=\(snapshot.rubTotal ?? -1)")
+            check("agent cny wallet", snapshot.wallet("CNY")?.total == 26.67, "got=\(snapshot.wallet("CNY")?.total ?? -1)")
+            check("agent eur conversion", snapshot.balance?.converted?["EUR"] == 3.55, "got=\(snapshot.balance?.converted?["EUR"] ?? -1)")
+        } catch {
+            check("agent snapshot decodes", false, "\(error)")
+        }
+
+        // Снимок без половины полей — легальный: агент может прислать только
+        // то, что умеет.
+        check("empty snapshot decodes", (try? JSONDecoder().decode(AgentSnapshot.self, from: Data("{}".utf8))) != nil)
+        check("broken snapshot is rejected", (try? JSONDecoder().decode(AgentSnapshot.self, from: Data("nope".utf8))) == nil)
+
+        check("unknown status falls back", AgentActivityStatus(raw: "делает кофе") == .unknown)
+        check("status maps off", AgentActivityStatus(raw: "off") == .off)
+
+        check("tokens are grouped with spaces", AgentFormat.tokens(218_431) == "218 431", "got=\(AgentFormat.tokens(218_431))")
+        check("money keeps two decimals", AgentFormat.money(26.67, .cny) == "26,67 ¥", "got=\(AgentFormat.money(26.67, .cny))")
+        check("sessions plural 1", AgentFormat.sessions(1) == "1 сессия", AgentFormat.sessions(1))
+        check("sessions plural 2", AgentFormat.sessions(2) == "2 сессии", AgentFormat.sessions(2))
+        check("sessions plural 5", AgentFormat.sessions(5) == "5 сессий", AgentFormat.sessions(5))
+        check("sessions plural 11", AgentFormat.sessions(11) == "11 сессий", AgentFormat.sessions(11))
+        check("sessions plural 21", AgentFormat.sessions(21) == "21 сессия", AgentFormat.sessions(21))
+
+        let reference = Date(timeIntervalSince1970: 1_700_000_000)
+        check("age says just now", AgentFormat.age(reference.addingTimeInterval(-3), now: reference) == "только что")
+        check("age says minutes", AgentFormat.age(reference.addingTimeInterval(-300), now: reference) == "5 мин назад")
+        check("age says hours", AgentFormat.age(reference.addingTimeInterval(-7200), now: reference) == "2 ч назад")
+        check("duration formats", AgentFormat.duration(200) == "3 мин", AgentFormat.duration(200))
+
         clipboard.stop()
 
         // Restore the user's pasteboard.

@@ -6,6 +6,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
     case snippets
     case notes
     case apps
+    case agent
     case translator
     case music
 
@@ -17,6 +18,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .snippets: return "Сниппеты"
         case .notes: return "Заметки"
         case .apps: return "Приложения"
+        case .agent: return "Агент"
         case .translator: return "Переводчик"
         case .music: return "Музыка"
         }
@@ -28,6 +30,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .snippets: return "text.badge.plus"
         case .notes: return "note.text"
         case .apps: return "square.grid.2x2"
+        case .agent: return "brain.head.profile"
         case .translator: return "character.book.closed"
         case .music: return "music.note"
         }
@@ -39,6 +42,7 @@ enum PanelTab: String, CaseIterable, Identifiable {
         case .snippets: return "Заготовки, которые копируются в один клик"
         case .notes: return "Свободные записи с автосохранением"
         case .apps: return "Запущенные приложения, файлы и ссылки"
+        case .agent: return "Токены, баланс и активность агента"
         case .translator: return "Английский ↔ русский"
         case .music: return "Управление системным воспроизведением"
         }

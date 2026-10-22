@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var tabSettings: TabSettings
     @ObservedObject var appState: AppState
     @ObservedObject var translation: TranslationService
+    @ObservedObject var agent: AgentStore
 
     @State private var launchAtLogin = LaunchAtLogin.isEnabled
     @State private var draggingID: String?
@@ -22,6 +23,8 @@ struct SettingsView: View {
                 tabsSection
                 Divider()
                 panelSection
+                Divider()
+                agentSection
                 Divider()
                 translatorSection
             }
@@ -85,6 +88,11 @@ struct SettingsView: View {
             }
         }
         .padding(16)
+    }
+
+    /// Версия из Info.plist: подпись в настройках не должна отставать от сборки.
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     }
 
     // MARK: - Панель
@@ -232,7 +240,7 @@ struct SettingsView: View {
                 }
                 .controlSize(.small)
                 Spacer()
-                Text("DynamicBar 1.0")
+                Text("DynamicBar \(appVersion)")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }
@@ -294,6 +302,173 @@ extension SettingsView {
         case .builtIn:
             return "Встроенный переводчик macOS: без ключа и без интернета. При первом переводе система предложит скачать языковой пакет."
         }
+    }
+}
+
+extension SettingsView {
+    /// Настройки вкладки «Агент»: откуда брать данные, какие валюты показывать
+    /// и как считать токены.
+    var agentSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Агент")
+                .font(.system(size: 13, weight: .semibold))
+
+            Text("Вкладка показывает токены, баланс и активность агента. Данные — обычный JSON; его пишет встроенный сборщик DSH, свой файл или любая команда, печатающая снимок в stdout.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Источник данных")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { agent.source },
+                    set: { agent.source = $0 }
+                )) {
+                    ForEach(AgentSourceKind.allCases) { kind in
+                        Text(kind.title).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+
+            switch agent.source {
+            case .auto:
+                Text(autoExplanation)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .file:
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Путь к JSON-снимку")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    TextField(AgentStore.defaultFilePath, text: $agent.filePath)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11, design: .monospaced))
+                    Text("Подойдёт файл, который пишет сборщик: node dsh-collector.mjs --out …")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            case .command:
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Команда, печатающая снимок в stdout")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    TextField("node ~/dsh-collector.mjs --json", text: $agent.command)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 11, design: .monospaced))
+                    Text("Запускается через /bin/sh раз в 4 секунды, пока вкладка открыта.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Валюты на вкладке")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    ForEach(AgentCurrency.allCases) { currency in
+                        Toggle(isOn: currencyBinding(currency)) {
+                            Text("\(currency.symbol) \(currency.title)")
+                                .font(.system(size: 11))
+                        }
+                        .toggleStyle(.checkbox)
+                        .help("\(currency.title) в балансе")
+                    }
+                }
+                Text("Отметьте одну или несколько: рубли считаются по курсу ЦБ, остальное пересчитывается из него.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Токены за сегодня")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { agent.tokenMode },
+                    set: { agent.tokenMode = $0 }
+                )) {
+                    ForEach(AgentTokenMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(agent.tokenMode.explanation)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(agentStatusColor)
+                    .frame(width: 6, height: 6)
+                Text(agentStatusText)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 6)
+                Button("Обновить") { agent.refresh() }
+                    .controlSize(.small)
+            }
+        }
+        .padding(16)
+    }
+
+    private var autoExplanation: String {
+        let node = AgentStore.nodePath() != nil ? "найден" : "не найден"
+        return "Если каталог ~/.dsh есть и Node \(node), приложение запускает встроенный сборщик. Иначе читает файл \(AgentStore.defaultFilePath)."
+    }
+
+    private var agentStatusColor: Color {
+        switch agent.phase {
+        case .ready: return .green
+        case .loading: return .blue
+        case .idle: return .gray
+        case .failed: return .orange
+        }
+    }
+
+    private var agentStatusText: String {
+        switch agent.phase {
+        case .ready:
+            let age = AgentFormat.age(agent.lastRefresh)
+            if let took = agent.lastTookMilliseconds {
+                return "Данные получены \(age) · \(took) мс"
+            }
+            return "Данные получены \(age)"
+        case .loading:
+            return "Обновляю…"
+        case .idle:
+            return "Ещё не обновлялось — откройте вкладку «Агент»"
+        case .failed(let message):
+            return message
+        }
+    }
+
+    /// Последнюю валюту снять нельзя: пустая карточка баланса выглядела бы
+    /// сломанной.
+    private func currencyBinding(_ currency: AgentCurrency) -> Binding<Bool> {
+        Binding(
+            get: { agent.currencies.contains(currency) },
+            set: { enabled in
+                if enabled {
+                    agent.currencies.insert(currency)
+                } else if agent.currencies.count > 1 {
+                    agent.currencies.remove(currency)
+                }
+            }
+        )
     }
 }
 

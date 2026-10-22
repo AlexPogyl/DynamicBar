@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let notes = NoteStore()
     private let apps = AppsStore()
     private let runningApps = RunningAppsMonitor()
+    private let agent = AgentStore()
     private let translation = TranslationService()
     private let nowPlaying = NowPlayingService()
     private let volume = SystemVolume()
@@ -59,7 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 translation: translation,
                 nowPlaying: nowPlaying,
                 volume: volume,
-                tabSettings: tabSettings
+                tabSettings: tabSettings,
+                agent: agent
             )
         )
 
@@ -83,7 +85,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController.onShowPanel = { [weak self] in
             self?.panelController.show(reason: "status-item")
         }
-        settingsWindow = SettingsWindowController(tabSettings: tabSettings, appState: appState, translation: translation)
+        // Вкладка «Агент» обновляется только пока её видно: подписка на
+        // открытие/закрытие панели ставится здесь.
+        agent.attach(appState: appState)
+
+        settingsWindow = SettingsWindowController(
+            tabSettings: tabSettings,
+            appState: appState,
+            translation: translation,
+            agent: agent
+        )
         let openSettings: () -> Void = { [weak self] in
             guard let self else { return }
             self.settingsWindow?.show()

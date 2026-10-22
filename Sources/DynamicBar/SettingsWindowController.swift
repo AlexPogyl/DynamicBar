@@ -9,12 +9,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private let tabSettings: TabSettings
     private let appState: AppState
     private let translation: TranslationService
+    private let agent: AgentStore
     private var didActivate = false
 
-    init(tabSettings: TabSettings, appState: AppState, translation: TranslationService) {
+    init(tabSettings: TabSettings, appState: AppState, translation: TranslationService, agent: AgentStore) {
         self.tabSettings = tabSettings
         self.appState = appState
         self.translation = translation
+        self.agent = agent
         super.init()
     }
 
@@ -43,7 +45,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         if window == nil {
-            let view = SettingsView(tabSettings: tabSettings, appState: appState, translation: translation)
+            let view = SettingsView(tabSettings: tabSettings, appState: appState, translation: translation, agent: agent)
             let hosting = NSHostingView(rootView: view)
             let size = Self.contentSize
             hosting.frame = NSRect(origin: .zero, size: size)

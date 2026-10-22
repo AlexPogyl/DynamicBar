@@ -77,13 +77,40 @@ check $? "--storetest exits 0"
 grep -q "STORETEST OK" "$OUT/storetest.log"; check $? "logic checks pass (clipboard, images, notes, tabs)"
 grep -c "\[ok\]" "$OUT/storetest.log" | sed 's/^/      checks passed: /'
 
+# --------------------------------------------------------------- 3b agent ---
+step "3b. Вкладка «Агент»"
+[ -f "$APP/Contents/Resources/dsh-collector.mjs" ]; check $? "сборщик агента лежит внутри бандла"
+[ -f "$ROOT/scripts/agent/dsh-collector.mjs" ]; check $? "исходник сборщика есть в репозитории"
+grep -q "agent" <<< "$(DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --settingstest 2>/dev/null | grep 'SETTINGSTEST tabs=')" \
+  && AGENT_TAB=0 || AGENT_TAB=1
+check $AGENT_TAB "вкладка «Агент» есть в списке вкладок"
+
+if command -v node >/dev/null 2>&1 && [ -d "$HOME/.dsh" ]; then
+  DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --agenttest > "$OUT/agenttest.log" 2>&1
+  check $? "--agenttest завершается без ошибок"
+  grep -q "AGENTTEST OK" "$OUT/agenttest.log"; check $? "снимок агента собирается и разбирается целиком"
+  grep -q "schemaVersion:    1" "$OUT/agenttest.log"; check $? "версия схемы снимка совпадает с ожидаемой"
+  grep -qE "status: +(working|waiting|idle|off)" "$OUT/agenttest.log"; check $? "состояние агента распознано"
+  grep -q "tokens today:" "$OUT/agenttest.log"; check $? "токены за сегодня посчитаны"
+  grep -q "balance:" "$OUT/agenttest.log"; check $? "баланс получен"
+  grep "tokens today:" "$OUT/agenttest.log" | sed 's/^/      /'
+  grep "rub:" "$OUT/agenttest.log" | sed 's/^/      /'
+else
+  # На машине без Node и DSH вкладка обязана честно сообщить об этом, а не упасть.
+  DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --agenttest > "$OUT/agenttest.log" 2>&1
+  check $? "--agenttest корректно сообщает об отсутствии источника (exit 1)"
+  grep -q "AGENTTEST FAIL" "$OUT/agenttest.log"; check $? "без Node и DSH вкладка показывает понятную ошибку"
+fi
+
 # ------------------------------------------------------------- 4 render ------
 step "4. UI render"
 "$BIN" --rendertest "$OUT/render" > "$OUT/rendertest.log" 2>&1
 check $? "--rendertest exits 0"
 grep -q "RENDERTEST OK" "$OUT/rendertest.log"; check $? "all panel tabs rasterised"
 COUNT=$(ls "$OUT/render"/*.png 2>/dev/null | wc -l | tr -d ' ')
-[ "$COUNT" -ge 18 ]; check $? "produced $COUNT panel images"
+[ "$COUNT" -ge 20 ]; check $? "produced $COUNT panel images"
+[ -f "$OUT/render/panel-dark-agent.png" ]; check $? "вкладка «Агент» отрисована (тёмная тема)"
+[ -f "$OUT/render/panel-light-agent.png" ]; check $? "вкладка «Агент» отрисована (светлая тема)"
 
 # ------------------------------------------------------------- 5 show test ---
 step "5. Panel show/hide machinery (window server level)"
@@ -228,7 +255,13 @@ sleep 2
 kill "$LOG_PID" 2>/dev/null
 
 grep -q "artwork:         нет" "$OUT/musictest.log" && ok "обложки нет только потому, что трек их не публикует" || ok "обложка трека получена"
-grep -q "canSkip:" "$OUT/musictest.log"; check $? "плеер сообщает, какие команды принимает"
+# Поддерживаемые команды есть только у активного трека. Если ничего не играет,
+# сообщать нечего — это не поломка приложения, и проверка честно говорит об этом.
+if grep -q "track:           <not available>" "$OUT/musictest.log"; then
+  ok "ничего не играет — команды плеера проверять не на чем"
+else
+  grep -q "canSkip:" "$OUT/musictest.log"; check $? "плеер сообщает, какие команды принимает"
+fi
 
 grep -q "MRMediaRemoteSendCommand:    accepted=true" "$OUT/musictest-toggle.log"; check $? "MRMediaRemoteSendCommand accepted play/pause"
 if grep -q "sendRemoteControlCommand" "$OUT/mediaremoted.log"; then

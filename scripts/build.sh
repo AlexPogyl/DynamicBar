@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="DynamicBar"
 BUNDLE_ID="com.dynamicbar.DynamicBar"
-VERSION="1.0.0"
+VERSION="1.2.0"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$APP_NAME.app"
 ARCHS="${ARCHS:-x86_64}"
@@ -97,6 +97,18 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Contents/Info.plist" >/dev/null
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist" >/dev/null
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+# ------------------------------------------------------------- agent collector --
+# Вкладка «Агент» запускает этот файл через Node. Держим его в бандле, чтобы
+# приложение работало без отдельной установки: у кого есть DSH, у того всё
+# заводится сразу.
+COLLECTOR="$ROOT/scripts/agent/dsh-collector.mjs"
+if [ -f "$COLLECTOR" ]; then
+  cp "$COLLECTOR" "$APP/Contents/Resources/dsh-collector.mjs"
+  echo "    collector: dsh-collector.mjs"
+else
+  echo "    WARNING: $COLLECTOR не найден — вкладка «Агент» будет читать только внешний файл" >&2
+fi
 
 # --------------------------------------------------------------------- icon --
 if [ -f "$ROOT/Resources/AppIcon.icns" ]; then

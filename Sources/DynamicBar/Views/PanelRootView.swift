@@ -12,6 +12,7 @@ struct PanelRootView: View {
     @ObservedObject var nowPlaying: NowPlayingService
     @ObservedObject var volume: SystemVolume
     @ObservedObject var tabSettings: TabSettings
+    @ObservedObject var agent: AgentStore
 
     var body: some View {
         VStack(spacing: 0) {
@@ -119,6 +120,8 @@ struct PanelRootView: View {
             NotesTabView(appState: appState, store: notes, clipboard: clipboard)
         case .apps:
             AppsTabView(appState: appState, store: apps, monitor: runningApps)
+        case .agent:
+            AgentTabView(appState: appState, store: agent)
         case .translator:
             TranslatorTabView(appState: appState, service: translation)
         case .music:
@@ -157,6 +160,7 @@ struct PanelRootView: View {
         case .snippets: return "Клик — скопировать · + — добавить · правый клик — изменить"
         case .notes: return "Текст сохраняется сам · + — новая заметка"
         case .apps: return "Клик — открыть · правый клик — закрепить или убрать"
+        case .agent: return "Данные обновляются раз в 4 секунды, пока вкладка открыта"
         case .translator: return "Перевод идёт по мере набора текста"
         case .music: return "Управление идёт через системный плеер"
         }

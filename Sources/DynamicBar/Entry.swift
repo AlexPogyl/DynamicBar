@@ -8,6 +8,7 @@ import AppKit
 /// `--rendertest DIR`  : rasterise the panel UI to PNGs in DIR, exit.
 /// `--musictest`       : report the system Now Playing state; `--toggle` also
 ///                       exercises play/pause and restores the previous state.
+/// `--agenttest`       : load the agent snapshot end-to-end and print it.
 /// `--autostart-test`  : exercise launch-at-login registration, then restore.
 /// `--showtest`        : start normally, force show/hide the panel, print geometry, exit.
 /// `--settingstest`    : open the settings window and confirm it on screen, exit.
@@ -46,6 +47,11 @@ enum DynamicBarMain {
 
         if args.contains("--translatestest") {
             Diagnostics.translationTest(includeBuiltIn: args.contains("--builtin"))
+            exit(0)
+        }
+
+        if args.contains("--agenttest") {
+            Diagnostics.agentTest()
             exit(0)
         }
 

@@ -316,6 +316,48 @@ enum Diagnostics {
         print("AUTOSTARTTEST OK")
     }
 
+    // MARK: - Агент
+
+    /// `--agenttest` — проверяет сквозной путь вкладки «Агент»: находит Node и
+    /// сборщик, запускает его и разбирает снимок, ничего не показывая на экране.
+    static func agentTest() {
+        print("DynamicBar agent test")
+        let store = AgentStore()
+        print("  source:           \(store.source.rawValue)")
+        print("  node:             \(AgentStore.nodePath() ?? "не найден")")
+        print("  collector:        \(AgentStore.collectorPath() ?? "не найден")")
+        print("  dsh home:         \(AgentStore.dshHome)")
+
+        let started = Date()
+        do {
+            let snapshot = try store.loadSynchronously()
+            let elapsed = Int(Date().timeIntervalSince(started) * 1000)
+            print("  loaded in:        \(elapsed) мс")
+            print("  schemaVersion:    \(snapshot.schemaVersion ?? -1)")
+            print("  status:           \(snapshot.status.rawValue)")
+            print("  sessions:         \(snapshot.sessions.count)")
+            print("  tokens today:     billable=\(snapshot.today?.billable ?? 0) input=\(snapshot.today?.input ?? 0) output=\(snapshot.today?.output ?? 0) cache=\(snapshot.today?.cacheRead ?? 0)")
+            let wallets = (snapshot.balance?.wallets ?? [])
+                .map { "\($0.currency)=\(AgentFormat.amount($0.total ?? 0))" }
+                .joined(separator: " ")
+            print("  balance:          \(wallets.isEmpty ? "нет" : wallets)")
+            let rub = snapshot.rubTotal.map { AgentFormat.amount($0) } ?? "—"
+            print("  rub:              \(rub)")
+            if let date = snapshot.updatedDate {
+                print("  snapshot time:    \(AgentFormat.age(date))")
+            }
+            guard snapshot.schemaVersion == AgentSnapshot.supportedSchemaVersion else {
+                print("AGENTTEST FAIL — неожиданная версия схемы")
+                exit(1)
+            }
+            print("AGENTTEST OK")
+        } catch {
+            print("  error:            \(error.localizedDescription)")
+            print("AGENTTEST FAIL")
+            exit(1)
+        }
+    }
+
     @available(macOS 13.0, *)
     private static func describe(_ status: SMAppService.Status) -> String {
         switch status {

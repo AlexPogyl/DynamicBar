@@ -64,6 +64,9 @@ enum ScreenshotTest {
         translation.input = "The panel slides out from the very top of the screen."
         translation.provider = .google
 
+        let agent = AgentStore()
+        agent.applyPreviewSample()
+
         let volume = SystemVolume()
         let nowPlaying = NowPlayingService()
         nowPlaying.setPreviewValues(title: "Bohemian Rhapsody",
@@ -91,7 +94,8 @@ enum ScreenshotTest {
                                     translation: translation,
                                     nowPlaying: nowPlaying,
                                     volume: volume,
-                                    tabSettings: tabSettings),
+                                    tabSettings: tabSettings,
+                                    agent: agent),
                 size: size,
                 appearance: .darkAqua
             ) else { continue }
@@ -101,12 +105,15 @@ enum ScreenshotTest {
         }
 
         // Отдельно — тот же стол в режиме «все», чтобы было видно разницу.
+        // Вкладку нужно выставить явно: после цикла выбрана последняя (.music),
+        // из-за чего картинка «все приложения» содержала плеер.
         appState.setAppsDisplayMode(.all, persist: false)
+        appState.selectedTab = .apps
         if let appsAll = RenderTest.image(
             root: PanelRootView(appState: appState,
                                 clipboard: clipboard, snippets: snippets, notes: notes,
                                 apps: apps, runningApps: runningApps, translation: translation,
-                                nowPlaying: nowPlaying, volume: volume, tabSettings: tabSettings),
+                                nowPlaying: nowPlaying, volume: volume, tabSettings: tabSettings, agent: agent),
             size: size,
             appearance: .darkAqua
         ) {
@@ -117,7 +124,7 @@ enum ScreenshotTest {
 
         appState.isEditingText = false
         if let settings = RenderTest.image(
-            root: SettingsView(tabSettings: tabSettings, appState: appState, translation: translation),
+            root: SettingsView(tabSettings: tabSettings, appState: appState, translation: translation, agent: agent),
             size: NSSize(width: 460, height: 520),
             appearance: .darkAqua
         ) {
@@ -138,7 +145,7 @@ enum ScreenshotTest {
     /// Собирает четыре вкладки в одну картинку на градиентном фоне — именно её
     /// показываем в README.
     private static func compose(shots: [PanelTab: NSImage], size: NSSize) -> NSImage? {
-        let order: [PanelTab] = [.clipboard, .music, .apps, .notes]
+        let order: [PanelTab] = [.clipboard, .agent, .apps, .music]
         let images = order.compactMap { shots[$0] }
         guard images.count == order.count else { return nil }
 
