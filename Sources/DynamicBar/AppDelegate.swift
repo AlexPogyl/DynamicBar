@@ -8,17 +8,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let activationTest: Bool
     private let gearTest: Bool
 
-    private let appState = AppState()
+    private lazy var appState = AppState(defaults: AppState.processDefaults)
     private let clipboard = ClipboardStore()
     private let snippets = SnippetStore()
     private let notes = NoteStore()
     private let apps = AppsStore()
     private let runningApps = RunningAppsMonitor()
-    private let agent = AgentStore()
+    private lazy var agent = AgentStore(defaults: AppState.processDefaults)
     private let translation = TranslationService()
     private let nowPlaying = NowPlayingService()
     private let volume = SystemVolume()
-    private let tabSettings = TabSettings()
+    private lazy var tabSettings = TabSettings(defaults: AppState.processDefaults)
     private var settingsWindow: SettingsWindowController?
     private let hotspotEditor = HotspotEditorController()
 
@@ -454,6 +454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     print("SETTINGSTEST window=missing (нашлось \(windows.count) окон)")
                 }
                 print("SETTINGSTEST tabs=\(self.tabSettings.orderedVisibleTabs.map(\.rawValue).joined(separator: ","))")
+                print("SETTINGSTEST allTabs=\(PanelTab.allCases.map(\.rawValue).joined(separator: ","))")
 
                 // Проверяем, что содержимое именно прокручивается, а не обрезано:
                 // ищем NSScrollView и сравниваем высоту содержимого с видимой.

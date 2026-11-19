@@ -4,11 +4,14 @@ import SwiftUI
 /// Редактор зоны появления: серая полоса поверх всего, которую можно таскать
 /// по экрану и растягивать за ручки.
 ///
-/// Полоса — это отдельное окно ровно того же размера, что и зона: двигая окно,
-/// мы двигаем зону, поэтому нет расхождения между картинкой и попаданием
-/// курсора. Ручки нарисованы внутри окна, чтобы у самого края экрана они
-/// оставались видимыми.
+/// Окно редактора **больше полосы** на запас по краям: у зоны 24 × 4 ручки
+/// иначе некуда нарисовать и не за что ухватиться. Полоса рисуется внутри
+/// окна по своим настоящим координатам, поэтому попадание курсора в неё
+/// совпадает с картинкой.
 final class HotspotEditorController: NSObject {
+    /// Запас вокруг полосы для ручек, в точках.
+    static let padding: CGFloat = 12
+
     private weak var appState: AppState?
     private var editorPanel: EditorPanel?
     private var editorView: HotspotEditorView?
@@ -24,9 +27,10 @@ final class HotspotEditorController: NSObject {
         self.originalArea = appState.hotspotArea
 
         let area = appState.hotspotArea ?? HotspotArea.defaultArea(in: screen.frame)
-        let rect = area.rect(in: screen.frame)
+        let strip = area.rect(in: screen.frame)
+        let windowFrame = Self.paddedFrame(for: strip, in: screen.frame)
 
-        let panel = EditorPanel(contentRect: rect)
+        let panel = EditorPanel(contentRect: windowFrame)
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -37,10 +41,11 @@ final class HotspotEditorController: NSObject {
         panel.isMovable = false
         panel.isReleasedWhenClosed = false
 
-        let view = HotspotEditorView(frame: NSRect(origin: .zero, size: rect.size))
+        let view = HotspotEditorView(frame: NSRect(origin: .zero, size: windowFrame.size))
         view.autoresizingMask = [.width, .height]
-        view.onFrameChange = { [weak self] rect in
-            self?.apply(rect: rect)
+        view.strip = strip
+        view.onStripChange = { [weak self] rect in
+            self?.apply(strip: rect)
         }
         view.onFinish = { [weak self] in
             self?.finish()
@@ -52,7 +57,7 @@ final class HotspotEditorController: NSObject {
         editorView = view
         appState.isEditingHotspot = true
 
-        showHUD(for: rect)
+        showHUD(for: strip)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKey()
 
@@ -64,20 +69,35 @@ final class HotspotEditorController: NSObject {
             return event
         }
 
-        Log.info("hotspot editor: opened at \(rect)")
+        Log.info("hotspot editor: opened at \(strip) (window \(windowFrame))")
     }
 
-    /// Применяет прямоугольник в координатах экрана к состоянию.
-    private func apply(rect: NSRect) {
-        guard let appState else { return }
-        let area = HotspotArea.from(rect: rect, in: screen.frame)
-        appState.setHotspotArea(area)
-        updateHUD(for: rect)
+    /// Окно вокруг полосы: запас по краям, но всегда в пределах экрана.
+    static func paddedFrame(for strip: NSRect, in screen: NSRect) -> NSRect {
+        var frame = strip.insetBy(dx: -padding, dy: -padding)
+        frame.size.width = min(frame.width, screen.width)
+        frame.size.height = min(frame.height, screen.height)
+        frame.origin.x = min(max(frame.origin.x, screen.minX), screen.maxX - frame.width)
+        frame.origin.y = min(max(frame.origin.y, screen.minY), screen.maxY - frame.height)
+        return frame.integral
     }
 
-    private func showHUD(for rect: NSRect) {
+    /// Применяет полосу в координатах экрана к состоянию и переставляет окно.
+    private func apply(strip: NSRect) {
+        guard let appState, let panel = editorPanel, let view = editorView else { return }
+        let frame = Self.paddedFrame(for: strip, in: screen.frame)
+        if panel.frame != frame {
+            panel.setFrame(frame, display: true)
+        }
+        view.strip = strip
+        view.needsDisplay = true
+        appState.setHotspotArea(HotspotArea.from(rect: strip, in: screen.frame))
+        positionHUD(near: strip)
+    }
+
+    private func showHUD(for strip: NSRect) {
         let hud = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 58),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 58),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -97,33 +117,33 @@ final class HotspotEditorController: NSObject {
         hud.contentView = NSHostingView(rootView: root)
         hud.orderFrontRegardless()
         hudPanel = hud
-        positionHUD(near: rect)
+        positionHUD(near: strip)
     }
 
-    private func positionHUD(near rect: NSRect) {
+    private func positionHUD(near strip: NSRect) {
         guard let hud = hudPanel else { return }
         let size = hud.frame.size
         let frame = screen.frame
-        var originX = rect.midX - size.width / 2
+
+        var originX = strip.midX - size.width / 2
         originX = min(max(originX, frame.minX + 8), frame.maxX - size.width - 8)
-        var originY = rect.minY - size.height - 10
+
+        // Снизу места больше, но если полоса у нижней кромки — подсказка сверху.
+        var originY = strip.minY - size.height - Self.padding - 8
         if originY < frame.minY + 8 {
-            originY = rect.maxY + 10
+            originY = strip.maxY + Self.padding + 8
+        }
+        if originY + size.height > frame.maxY - 8 {
+            originY = frame.minY + 8
         }
         hud.setFrameOrigin(NSPoint(x: originX.rounded(), y: originY.rounded()))
-    }
-
-    private func updateHUD(for rect: NSRect) {
-        positionHUD(near: rect)
     }
 
     private func reset() {
         guard let appState else { return }
         appState.resetHotspotArea()
-        let area = HotspotArea.defaultArea(in: screen.frame)
-        let rect = area.rect(in: screen.frame)
-        editorPanel?.setFrame(rect, display: true)
-        updateHUD(for: rect)
+        let strip = HotspotArea.defaultArea(in: screen.frame).rect(in: screen.frame)
+        apply(strip: strip)
     }
 
     private func cancel() {
@@ -178,11 +198,18 @@ final class EditorPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Полоса и ручки. Окно редактора совпадает с зоной, поэтому всё рисуется
-/// внутри его границ.
+/// Полоса, ручки и перетаскивание.
+///
+/// `strip` хранится в координатах экрана — так его проще и рисовать, и
+/// сравнивать с границами экрана. В координаты вида он переводится через
+/// рамку окна, которая всё время следует за полосой.
 final class HotspotEditorView: NSView {
-    var onFrameChange: ((NSRect) -> Void)?
+    var onStripChange: ((NSRect) -> Void)?
     var onFinish: (() -> Void)?
+
+    var strip: NSRect = .zero {
+        didSet { needsDisplay = true }
+    }
 
     private enum DragMode {
         case move
@@ -195,62 +222,86 @@ final class HotspotEditorView: NSView {
 
     private var dragMode: DragMode?
     private var startMouse: NSPoint = .zero
-    private var startFrame: NSRect = .zero
-    private let handleSide: CGFloat = 7
-    private let handleInset: CGFloat = 5
-    private let minimumSize = NSSize(width: HotspotArea.minWidth, height: HotspotArea.minHeight)
+    private var startStrip: NSRect = .zero
+    private let minimumSize = NSSize(width: HotspotArea.minWidth,
+                                    height: HotspotArea.minHeight)
 
     override var acceptsFirstResponder: Bool { true }
 
+    private var stripInView: NSRect {
+        guard let window else { return strip }
+        return NSRect(
+            x: strip.minX - window.frame.minX,
+            y: strip.minY - window.frame.minY,
+            width: strip.width,
+            height: strip.height
+        )
+    }
+
+    /// Сторона ручки: на крошечной полосе она не должна её перекрывать.
+    private var handleSide: CGFloat {
+        let byHeight = max(5, min(9, strip.height * 0.6))
+        let byWidth = max(5, min(9, strip.width * 0.25))
+        return min(9, max(5, min(byHeight, byWidth)))
+    }
+
+    // MARK: - Рисование
+
     override func draw(_ dirtyRect: NSRect) {
-        let bounds = self.bounds.insetBy(dx: 0.5, dy: 0.5)
-        let radius = min(6, bounds.height / 2)
-        let body = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
-        NSColor(white: 0.55, alpha: 0.5).setFill()
+        let rect = stripInView
+        guard rect.width > 0, rect.height > 0 else { return }
+
+        let radius = min(4, rect.height / 2)
+        let body = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
+                                xRadius: radius,
+                                yRadius: radius)
+        NSColor(white: 0.55, alpha: 0.55).setFill()
         body.fill()
-        NSColor(white: 1, alpha: 0.9).setStroke()
+        NSColor(white: 1, alpha: 0.95).setStroke()
         body.lineWidth = 1
         body.stroke()
 
         NSColor(white: 1, alpha: 0.95).setFill()
-        for rect in handleRects() {
-            NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
+        for handle in handleRects(in: rect) {
+            NSBezierPath(roundedRect: handle, xRadius: 1.5, yRadius: 1.5).fill()
         }
 
-        if bounds.height >= 22, bounds.width >= 90 {
-            let text = "\(Int(bounds.width)) × \(Int(bounds.height))"
+        if rect.height >= 20, rect.width >= 90 {
+            let text = "\(Int(rect.width)) × \(Int(rect.height))"
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold),
                 .foregroundColor: NSColor.white,
             ]
             let size = (text as NSString).size(withAttributes: attributes)
-            let origin = NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2)
+            let origin = NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2)
             (text as NSString).draw(at: origin, withAttributes: attributes)
         }
     }
 
-    private func handleRects() -> [NSRect] {
-        let w = bounds.width
-        let h = bounds.height
+    /// Восемь ручек по углам и серединам сторон. Они стоят **на** границе
+    /// полосы и потому попадают в запас окна, а не обрезаются.
+    private func handleRects(in rect: NSRect) -> [NSRect] {
         let side = handleSide
-        func rect(_ x: CGFloat, _ y: CGFloat) -> NSRect {
+        func box(_ x: CGFloat, _ y: CGFloat) -> NSRect {
             NSRect(x: x - side / 2, y: y - side / 2, width: side, height: side)
         }
         return [
-            rect(handleInset, h - handleInset),
-            rect(w / 2, h - handleInset),
-            rect(w - handleInset, h - handleInset),
-            rect(w - handleInset, h / 2),
-            rect(w - handleInset, handleInset),
-            rect(w / 2, handleInset),
-            rect(handleInset, handleInset),
-            rect(handleInset, h / 2),
+            box(rect.minX, rect.maxY),
+            box(rect.midX, rect.maxY),
+            box(rect.maxX, rect.maxY),
+            box(rect.maxX, rect.midY),
+            box(rect.maxX, rect.minY),
+            box(rect.midX, rect.minY),
+            box(rect.minX, rect.minY),
+            box(rect.minX, rect.midY),
         ]
     }
 
     private func handle(at point: NSPoint) -> Handle? {
-        for (index, rect) in handleRects().enumerated() {
-            if rect.insetBy(dx: -3, dy: -3).contains(point) {
+        let rect = stripInView
+        for (index, box) in handleRects(in: rect).enumerated() {
+            // Хватаем с запасом: на 4-точечной полосе иначе не попасть.
+            if box.insetBy(dx: -6, dy: -6).contains(point) {
                 return Handle(rawValue: index)
             }
         }
@@ -262,9 +313,11 @@ final class HotspotEditorView: NSView {
         addCursorRect(bounds, cursor: .openHand)
     }
 
+    // MARK: - Мышь
+
     override func mouseDown(with event: NSEvent) {
         startMouse = NSEvent.mouseLocation
-        startFrame = window?.frame ?? .zero
+        startStrip = strip
         let local = convert(event.locationInWindow, from: nil)
         if let handle = handle(at: local) {
             dragMode = .resize(handle)
@@ -279,15 +332,15 @@ final class HotspotEditorView: NSView {
         let mouse = NSEvent.mouseLocation
         let dx = mouse.x - startMouse.x
         let dy = mouse.y - startMouse.y
-        var frame = startFrame
+        var strip = startStrip
 
         switch dragMode {
         case .move:
-            frame.origin.x += dx
-            frame.origin.y += dy
+            strip.origin.x += dx
+            strip.origin.y += dy
         case .resize(let handle):
-            var minX = frame.minX, maxX = frame.maxX
-            var minY = frame.minY, maxY = frame.maxY
+            var minX = strip.minX, maxX = strip.maxX
+            var minY = strip.minY, maxY = strip.maxY
             switch handle {
             case .topLeft: minX += dx; maxY += dy
             case .top: maxY += dy
@@ -298,31 +351,38 @@ final class HotspotEditorView: NSView {
             case .bottomLeft: minX += dx; minY += dy
             case .left: minX += dx
             }
-            let width = max(minimumSize.width, maxX - minX)
-            let height = max(minimumSize.height, maxY - minY)
-            // Если тянут за левую/нижнюю ручку, противоположный край стоит на месте.
-            if minX > maxX - minimumSize.width { minX = maxX - minimumSize.width }
-            if minY > maxY - minimumSize.height { minY = maxY - minimumSize.height }
-            frame = NSRect(x: minX, y: minY, width: width, height: height)
+            if maxX - minX < minimumSize.width {
+                if handle == .topLeft || handle == .bottomLeft || handle == .left {
+                    minX = maxX - minimumSize.width
+                } else {
+                    maxX = minX + minimumSize.width
+                }
+            }
+            if maxY - minY < minimumSize.height {
+                if handle == .topLeft || handle == .top || handle == .topRight {
+                    maxY = minY + minimumSize.height
+                } else {
+                    minY = maxY - minimumSize.height
+                }
+            }
+            strip = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
         }
 
         // Не выпускаем полосу за экран: иначе она станет недоступной.
         let limit = screen.frame
-        frame.size.width = min(frame.width, limit.width)
-        frame.size.height = min(frame.height, limit.height)
-        frame.origin.x = min(max(frame.origin.x, limit.minX), limit.maxX - frame.width)
-        frame.origin.y = min(max(frame.origin.y, limit.minY), limit.maxY - frame.height)
+        strip.size.width = min(max(strip.width, minimumSize.width), limit.width)
+        strip.size.height = min(max(strip.height, minimumSize.height), limit.height)
+        strip.origin.x = min(max(strip.origin.x, limit.minX), limit.maxX - strip.width)
+        strip.origin.y = min(max(strip.origin.y, limit.minY), limit.maxY - strip.height)
 
-        window.setFrame(frame, display: true)
-        onFrameChange?(frame)
+        self.strip = strip.integral
+        onStripChange?(self.strip)
     }
 
     override func mouseUp(with event: NSEvent) {
         dragMode = nil
         NSCursor.openHand.set()
-        if let window {
-            onFrameChange?(window.frame)
-        }
+        onStripChange?(strip)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -331,7 +391,7 @@ final class HotspotEditorView: NSView {
     }
 }
 
-/// Подсказка под полосой с кнопками.
+/// Подсказка рядом с полосой.
 private struct HotspotEditorHUD: View {
     let onDone: () -> Void
     let onReset: () -> Void
@@ -342,7 +402,7 @@ private struct HotspotEditorHUD: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Зона появления панели")
                     .font(.system(size: 11, weight: .semibold))
-                Text("Тащите полосу за середину, тяните за ручки, чтобы изменить размер")
+                Text("Тащите полосу за любое место, ручки по краям меняют размер")
                     .font(.system(size: 9.5))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -358,7 +418,7 @@ private struct HotspotEditorHUD: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .frame(width: 340)
+        .frame(width: 360)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))

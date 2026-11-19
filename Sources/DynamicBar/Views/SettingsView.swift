@@ -250,7 +250,7 @@ struct SettingsView: View {
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
-                Slider(value: $appState.hotspotWidth, in: 120...420, step: 10)
+                Slider(value: $appState.hotspotWidth, in: 24...420, step: 2)
             }
             .disabled(appState.hotspotArea != nil)
             .opacity(appState.hotspotArea != nil ? 0.45 : 1)
@@ -265,7 +265,7 @@ struct SettingsView: View {
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
-                Slider(value: $appState.hotspotHeight, in: 8...48, step: 2)
+                Slider(value: $appState.hotspotHeight, in: 4...48, step: 2)
             }
             .disabled(appState.hotspotArea != nil)
             .opacity(appState.hotspotArea != nil ? 0.45 : 1)

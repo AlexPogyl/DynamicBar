@@ -611,6 +611,32 @@ enum StoreTest {
         check("минимальный размер зоны соблюдается",
               HotspotArea.from(rect: NSRect(x: 10, y: 10, width: 1, height: 1), in: screen).rect(in: screen).width >= HotspotArea.minWidth)
 
+        // Совсем маленькая зона: 24 × 4 — предел, ниже уже не попасть мышью.
+        let tiny = HotspotArea.from(rect: NSRect(x: 10, y: 10, width: 2, height: 1), in: screen)
+        let tinyRect = tiny.rect(in: screen)
+        check("крошечная зона поднимается до 24 × 4",
+              tinyRect.width == HotspotArea.minWidth && tinyRect.height == HotspotArea.minHeight,
+              "\(tinyRect.width)x\(tinyRect.height)")
+        let tinyScreen = NSScreen.screens.first ?? NSScreen.main!
+        check("заводская полоса не растягивается до строки меню",
+              PanelController.hotspot(for: tinyScreen, area: nil, width: 180, height: 4).height == 4,
+              "\(PanelController.hotspot(for: tinyScreen, area: nil, width: 180, height: 4))")
+        check("заводская полоса соблюдает минимум по ширине",
+              PanelController.hotspot(for: tinyScreen, area: nil, width: 2, height: 10).width >= HotspotArea.minWidth)
+
+        // Окно редактора вокруг крошечной полосы остаётся в пределах экрана,
+        // иначе ручки уедут за край и полосу не ухватить.
+        let padded = HotspotEditorController.paddedFrame(
+            for: NSRect(x: 0, y: 0, width: 24, height: 4),
+            in: screen
+        )
+        check("окно редактора не выходит за экран",
+              padded.minX >= screen.minX && padded.minY >= screen.minY
+              && padded.maxX <= screen.maxX && padded.maxY <= screen.maxY, "\(padded)")
+        check("окно редактора даёт запас для ручек",
+              padded.width >= 24 + 2 * HotspotEditorController.padding - 1
+              && padded.height >= 4 + 2 * HotspotEditorController.padding - 1, "\(padded)")
+
         // Размер панели и тема: пределы и сохранение.
         let sizeSuite = "com.dynamicbar.test.panelsize"
         UserDefaults.standard.removePersistentDomain(forName: sizeSuite)

@@ -209,7 +209,19 @@ final class AppState: ObservableObject {
         static let hotspotArea = "hotspotArea"
     }
 
-    init(defaults: UserDefaults = .standard) {
+    /// Домен настроек для текущего процесса. Проверки выставляют
+    /// `DYNAMICBAR_STATE_SUITE`, чтобы гонять приложение с чистым состоянием и
+    /// не трогать настройки владельца машины.
+    static var processDefaults: UserDefaults {
+        let environment = ProcessInfo.processInfo.environment
+        if let suite = environment["DYNAMICBAR_STATE_SUITE"], !suite.isEmpty,
+           let defaults = UserDefaults(suiteName: suite) {
+            return defaults
+        }
+        return .standard
+    }
+
+    init(defaults: UserDefaults = AppState.processDefaults) {
         self.defaults = defaults
         if defaults.object(forKey: Key.hoverEnabled) != nil {
             hoverEnabled = defaults.bool(forKey: Key.hoverEnabled)

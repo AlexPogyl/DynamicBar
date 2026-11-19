@@ -324,7 +324,7 @@ enum Diagnostics {
     static func hotspotEditorTest(seconds: TimeInterval) {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.accessory)
-        let state = AppState()
+        let state = AppState(defaults: AppState.processDefaults)
         let controller = HotspotEditorController()
         controller.begin(appState: state)
         RunLoop.main.run(until: Date().addingTimeInterval(seconds))

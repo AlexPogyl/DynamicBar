@@ -11,10 +11,11 @@ struct HotspotArea: Codable, Equatable {
     var width: CGFloat
     var height: CGFloat
 
-    /// Минимальный размер в точках: полосу меньшего размера невозможно ни
-    /// увидеть, ни поймать курсором.
-    static let minWidth: CGFloat = 60
-    static let minHeight: CGFloat = 10
+    /// Минимальный размер в точках. Ниже 24 × 4 полосу уже невозможно
+    /// нарисовать и ухватить мышью даже в редакторе, но сама зона может быть
+    /// совсем маленькой — например, 24 × 4 в углу экрана.
+    static let minWidth: CGFloat = 24
+    static let minHeight: CGFloat = 4
 
     /// Заводская зона: полоса по центру верхней кромки.
     static func defaultArea(in screen: NSRect) -> HotspotArea {

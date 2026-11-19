@@ -18,6 +18,12 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Проверки идут с чистым состоянием в отдельном домене: настройки владельца
+# машины (размер панели, тема, своя зона появления) не должны влиять на
+# результат и не должны меняться.
+export DYNAMICBAR_STATE_SUITE="com.dynamicbar.verify"
+defaults delete "$DYNAMICBAR_STATE_SUITE" 2>/dev/null || true
 APP="$ROOT/build/DynamicBar.app"
 BIN="$APP/Contents/MacOS/DynamicBar"
 OUT="$ROOT/build/verify"
@@ -81,9 +87,8 @@ grep -c "\[ok\]" "$OUT/storetest.log" | sed 's/^/      checks passed: /'
 step "3b. Вкладка «Агент»"
 [ -f "$APP/Contents/Resources/dsh-collector.mjs" ]; check $? "сборщик агента лежит внутри бандла"
 [ -f "$ROOT/scripts/agent/dsh-collector.mjs" ]; check $? "исходник сборщика есть в репозитории"
-grep -q "agent" <<< "$(DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --settingstest 2>/dev/null | grep 'SETTINGSTEST tabs=')" \
-  && AGENT_TAB=0 || AGENT_TAB=1
-check $AGENT_TAB "вкладка «Агент» есть в списке вкладок"
+DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --settingstest > "$OUT/tabs.log" 2>&1
+grep -q "SETTINGSTEST allTabs=.*agent" "$OUT/tabs.log"; check $? "вкладка «Агент» есть в списке вкладок"
 
 CORE="$APP/Contents/Resources/dsh-core"
 [ -x "$CORE" ]; check $? "ядро на Rust лежит в бандле и исполняемо"

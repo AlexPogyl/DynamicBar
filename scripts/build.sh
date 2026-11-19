@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="DynamicBar"
 BUNDLE_ID="com.dynamicbar.DynamicBar"
-VERSION="1.3.0"
+VERSION="1.3.1"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$APP_NAME.app"
 ARCHS="${ARCHS:-x86_64}"

@@ -178,8 +178,9 @@ final class PanelController {
         )
     }
 
-    /// Зона появления в точках. Заводская полоса обязана перекрывать строку
-    /// меню: иначе наведение на самый верх экрана не сработает.
+    /// Зона появления в точках. Заводская полоса — ровно того размера, какой
+    /// задан ползунками: раньше она молча растягивалась до высоты строки меню,
+    /// и уменьшить её ниже 30 pt было невозможно.
     static func hotspot(for screen: NSScreen,
                         area: HotspotArea?,
                         width: CGFloat,
@@ -187,13 +188,13 @@ final class PanelController {
         if let area {
             return area.rect(in: screen.frame)
         }
-        let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
-        let effectiveHeight = max(height, menuBarHeight)
+        let stripHeight = max(HotspotArea.minHeight, min(height, screen.frame.height))
+        let stripWidth = max(HotspotArea.minWidth, min(width, screen.frame.width))
         return NSRect(
-            x: (screen.frame.midX - width / 2).rounded(),
-            y: screen.frame.maxY - effectiveHeight,
-            width: width,
-            height: effectiveHeight
+            x: (screen.frame.midX - stripWidth / 2).rounded(),
+            y: screen.frame.maxY - stripHeight,
+            width: stripWidth,
+            height: stripHeight
         )
     }
 
