@@ -255,15 +255,15 @@ final class HotspotEditorView: NSView {
         let body = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
                                 xRadius: radius,
                                 yRadius: radius)
-        NSColor(white: 0.55, alpha: 0.55).setFill()
+        NSColor(white: 0.62, alpha: 0.78).setFill()
         body.fill()
         NSColor(white: 1, alpha: 0.95).setStroke()
         body.lineWidth = 1
         body.stroke()
 
         NSColor(white: 1, alpha: 0.95).setFill()
-        for handle in handleRects(in: rect) {
-            NSBezierPath(roundedRect: handle, xRadius: 1.5, yRadius: 1.5).fill()
+        for (_, box) in handleBoxes(in: rect) {
+            NSBezierPath(roundedRect: box, xRadius: 1.5, yRadius: 1.5).fill()
         }
 
         if rect.height >= 20, rect.width >= 90 {
@@ -278,31 +278,39 @@ final class HotspotEditorView: NSView {
         }
     }
 
-    /// Восемь ручек по углам и серединам сторон. Они стоят **на** границе
-    /// полосы и потому попадают в запас окна, а не обрезаются.
-    private func handleRects(in rect: NSRect) -> [NSRect] {
+    /// Ручки по углам и серединам сторон. Они стоят **на** границе полосы и
+    /// потому попадают в запас окна, а не обрезаются.
+    ///
+    /// У совсем маленькой зоны восемь ручек сливаются в сплошную строку, и
+    /// ими невозможно прицелиться — тогда остаются только четыре угла.
+    private func handleBoxes(in rect: NSRect) -> [(Handle, NSRect)] {
         let side = handleSide
         func box(_ x: CGFloat, _ y: CGFloat) -> NSRect {
             NSRect(x: x - side / 2, y: y - side / 2, width: side, height: side)
         }
-        return [
-            box(rect.minX, rect.maxY),
-            box(rect.midX, rect.maxY),
-            box(rect.maxX, rect.maxY),
-            box(rect.maxX, rect.midY),
-            box(rect.maxX, rect.minY),
-            box(rect.midX, rect.minY),
-            box(rect.minX, rect.minY),
-            box(rect.minX, rect.midY),
+        let corners: [(Handle, NSRect)] = [
+            (.topLeft, box(rect.minX, rect.maxY)),
+            (.topRight, box(rect.maxX, rect.maxY)),
+            (.bottomRight, box(rect.maxX, rect.minY)),
+            (.bottomLeft, box(rect.minX, rect.minY)),
+        ]
+        if rect.width < 70 || rect.height < 12 {
+            return corners
+        }
+        return corners + [
+            (.top, box(rect.midX, rect.maxY)),
+            (.right, box(rect.maxX, rect.midY)),
+            (.bottom, box(rect.midX, rect.minY)),
+            (.left, box(rect.minX, rect.midY)),
         ]
     }
 
     private func handle(at point: NSPoint) -> Handle? {
         let rect = stripInView
-        for (index, box) in handleRects(in: rect).enumerated() {
+        for (handle, box) in handleBoxes(in: rect) {
             // Хватаем с запасом: на 4-точечной полосе иначе не попасть.
             if box.insetBy(dx: -6, dy: -6).contains(point) {
-                return Handle(rawValue: index)
+                return handle
             }
         }
         return nil
