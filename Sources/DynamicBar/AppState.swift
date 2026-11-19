@@ -72,6 +72,50 @@ enum AnimationStyle: String, CaseIterable {
     }
 }
 
+/// Оформление панели.
+enum AppTheme: String, CaseIterable, Identifiable, Codable {
+    /// Как в системе: панель следует за светлой/тёмной темой macOS.
+    case system
+    /// Светлая панель на светлом фоне.
+    case light
+    /// Тёмная «мато́вая» панель — как было до появления выбора.
+    case dark
+    /// Полностью чёрная, без размытия: для OLED и для тех, кому нужен
+    /// максимальный контраст.
+    case black
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .system: return "Системная"
+        case .light: return "Светлая"
+        case .dark: return "Тёмная"
+        case .black: return "Чёрная"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .system: return "Как в macOS: панель светлеет и темнеет вместе с системой."
+        case .light: return "Светлая полупрозрачная панель с тёмным текстом."
+        case .dark: return "Тёмное размытие, как было раньше по умолчанию."
+        case .black: return "Чистый чёрный фон без размытия и без подсветки — максимальный контраст."
+        }
+    }
+
+    /// Внешний вид, который нужно навязать окну. `nil` — системный.
+    var appearanceName: NSAppearance.Name? {
+        switch self {
+        case .system: return nil
+        case .light: return .aqua
+        case .dark, .black: return .darkAqua
+        }
+    }
+
+    var isOpaqueBackground: Bool { self == .black }
+}
+
 /// Где именно появляется панель.
 enum PanelPlacement: String, CaseIterable {
     /// От самой кромки экрана, поверх строки меню — как в Cyclop.
@@ -119,10 +163,22 @@ final class AppState: ObservableObject {
     @Published var hotspotHeight: CGFloat = 24
 
     @Published var placement: PanelPlacement = .screenTop
-    /// Ширина панели. Нужна шапке, чтобы решить, помещаются ли подписи вкладок.
-    /// Считать это по фактическому layout нельзя: поле поиска во вкладке
-    /// «Буфер» перетягивало ширину на себя, и шапка сжималась только там.
+    /// Ширина панели. Задаётся пользователем и нужна шапке, чтобы решить,
+    /// помещаются ли подписи вкладок. Считать это по фактическому layout
+    /// нельзя: поле поиска во вкладке «Буфер» перетягивало ширину на себя,
+    /// и шапка сжималась только там.
     @Published var panelWidth: CGFloat = 760
+    /// Высота панели, тоже пользовательская.
+    @Published var panelHeight: CGFloat = 430
+    /// Фактическая ширина после прижатия к экрану. По ней верстается шапка.
+    @Published private(set) var effectivePanelWidth: CGFloat = 760
+    /// Фактическая высота — по ней решается, помещается ли подвал панели.
+    @Published private(set) var effectivePanelHeight: CGFloat = 430
+    /// Идёт настройка зоны появления: панель по наведению не выезжает.
+    @Published var isEditingHotspot: Bool = false
+    @Published var theme: AppTheme = .dark
+    /// Настраиваемая зона появления. `nil` — заводская полоса сверху по центру.
+    @Published var hotspotArea: HotspotArea?
     @Published var animationStyle: AnimationStyle = .spring
 
     /// Ставит PanelController.
@@ -133,6 +189,10 @@ final class AppState: ObservableObject {
     var onAnimationStyleChanged: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onMenuBarIconChanged: ((Bool) -> Void)?
+    var onThemeChanged: (() -> Void)?
+    var onPanelSizeChanged: (() -> Void)?
+    var onHotspotAreaChanged: (() -> Void)?
+    var onEditHotspot: (() -> Void)?
 
     private let defaults: UserDefaults
     private var toastTimer: Timer?
@@ -143,6 +203,10 @@ final class AppState: ObservableObject {
         static let appsDisplayMode = "appsDisplayMode"
         static let placement = "panelPlacement"
         static let animationStyle = "animationStyle"
+        static let panelWidth = "panelWidth"
+        static let panelHeight = "panelHeight"
+        static let theme = "appTheme"
+        static let hotspotArea = "hotspotArea"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -165,6 +229,20 @@ final class AppState: ObservableObject {
         if let raw = defaults.string(forKey: Key.animationStyle), let value = AnimationStyle(rawValue: raw) {
             animationStyle = value
         }
+        if defaults.object(forKey: Key.panelWidth) != nil {
+            panelWidth = CGFloat(defaults.double(forKey: Key.panelWidth))
+        }
+        if defaults.object(forKey: Key.panelHeight) != nil {
+            panelHeight = CGFloat(defaults.double(forKey: Key.panelHeight))
+        }
+        if let raw = defaults.string(forKey: Key.theme), let value = AppTheme(rawValue: raw) {
+            theme = value
+        }
+        if let data = defaults.data(forKey: Key.hotspotArea),
+           let area = try? JSONDecoder().decode(HotspotArea.self, from: data) {
+            hotspotArea = area
+        }
+        effectivePanelWidth = panelWidth
     }
 
     func showToast(_ message: String) {
@@ -232,5 +310,60 @@ final class AppState: ObservableObject {
 
     func requestSettings() {
         onOpenSettings?()
+    }
+
+    // MARK: - Оформление, размер и зона появления
+
+    func setTheme(_ value: AppTheme) {
+        guard theme != value else { return }
+        theme = value
+        defaults.set(value.rawValue, forKey: Key.theme)
+        onThemeChanged?()
+    }
+
+    /// Размер панели ограничивается разумными пределами: слишком узкая
+    /// панель не вмещает шапку, слишком высокая не помещается на экран.
+    static let minPanelWidth: CGFloat = 480
+    static let minPanelHeight: CGFloat = 260
+
+    func setPanelSize(width: CGFloat, height: CGFloat) {
+        let clampedWidth = max(Self.minPanelWidth, min(1600, width.rounded()))
+        let clampedHeight = max(Self.minPanelHeight, min(1100, height.rounded()))
+        guard clampedWidth != panelWidth || clampedHeight != panelHeight else { return }
+        panelWidth = clampedWidth
+        panelHeight = clampedHeight
+        defaults.set(Double(clampedWidth), forKey: Key.panelWidth)
+        defaults.set(Double(clampedHeight), forKey: Key.panelHeight)
+        onPanelSizeChanged?()
+    }
+
+    func resetPanelSize() {
+        setPanelSize(width: 760, height: 430)
+    }
+
+    func setEffectivePanelWidth(_ width: CGFloat) {
+        if abs(effectivePanelWidth - width) > 0.5 { effectivePanelWidth = width }
+    }
+
+    func setEffectivePanelHeight(_ height: CGFloat) {
+        if abs(effectivePanelHeight - height) > 0.5 { effectivePanelHeight = height }
+    }
+
+    func setHotspotArea(_ area: HotspotArea?) {
+        hotspotArea = area
+        if let area, let data = try? JSONEncoder().encode(area) {
+            defaults.set(data, forKey: Key.hotspotArea)
+        } else {
+            defaults.removeObject(forKey: Key.hotspotArea)
+        }
+        onHotspotAreaChanged?()
+    }
+
+    func resetHotspotArea() {
+        setHotspotArea(nil)
+    }
+
+    func editHotspotArea() {
+        onEditHotspot?()
     }
 }

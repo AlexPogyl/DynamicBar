@@ -28,6 +28,14 @@ final class PanelController {
     /// панель всегда чуть перелетает и мягко садится.
     private let spring = SpringAnimation()
 
+    /// Подложка панели: размытие для обычных тем и сплошной чёрный слой для
+    /// «Чёрной». Живут одновременно, переключается только видимость.
+    private let blurBackground = NSVisualEffectView()
+    private let solidBackground = NSView()
+
+    /// Последний рассчитанный маршрут: где панель стоит и куда прячется.
+    private var currentLayout: PanelLayout?
+
     /// Delay before the panel appears once the pointer touches the hotspot.
     private let showDelay: TimeInterval = 0.12
     /// Grace period before hiding once the pointer leaves.
@@ -41,13 +49,18 @@ final class PanelController {
         self.nowPlaying = nowPlaying
 
         let screen = PanelController.activeScreen()
-        let geometry = PanelController.geometry(for: screen, placement: appState.placement)
+        let size = PanelController.effectiveSize(width: appState.panelWidth, height: appState.panelHeight, screen: screen)
+        let hotspot = PanelController.hotspot(for: screen,
+                                              area: appState.hotspotArea,
+                                              width: appState.hotspotWidth,
+                                              height: appState.hotspotHeight)
+        let geometry = PanelController.layout(for: screen,
+                                              size: size,
+                                              hotspot: hotspot,
+                                              placement: appState.placement)
 
         panel = PanelWindow(contentRect: geometry.visible)
-        // `.hudWindow` vibrancy is always dark, so pin the whole panel to the dark
-        // appearance — otherwise light-mode SwiftUI text would render black on a
-        // dark blurred background.
-        panel.appearance = NSAppearance(named: .darkAqua)
+        applyThemeAppearance()
         panel.level = PanelController.level(for: appState.placement)
         panel.onEscape = { [weak self] in
             guard let self else { return }
@@ -89,26 +102,36 @@ final class PanelController {
         container.autoresizingMask = [.width, .height]
         container.wantsLayer = true
 
-        // Frosted "HUD" background behind the SwiftUI content.
-        let blur = NSVisualEffectView(frame: bounds)
-        blur.material = .hudWindow
-        blur.blendingMode = .behindWindow
-        blur.state = .active
-        blur.autoresizingMask = [.width, .height]
-        blur.wantsLayer = true
-        blur.layer?.cornerRadius = 18
-        blur.layer?.cornerCurve = .continuous
-        blur.layer?.masksToBounds = true
-        container.addSubview(blur)
+        // Подложка: либо «матовое стекло», либо сплошной чёрный слой.
+        blurBackground.frame = bounds
+        blurBackground.blendingMode = .behindWindow
+        blurBackground.state = .active
+        blurBackground.autoresizingMask = [.width, .height]
+        blurBackground.wantsLayer = true
+        blurBackground.layer?.cornerRadius = 18
+        blurBackground.layer?.cornerCurve = .continuous
+        blurBackground.layer?.masksToBounds = true
+        container.addSubview(blurBackground)
+
+        solidBackground.frame = bounds
+        solidBackground.autoresizingMask = [.width, .height]
+        solidBackground.wantsLayer = true
+        solidBackground.layer?.cornerRadius = 18
+        solidBackground.layer?.cornerCurve = .continuous
+        solidBackground.layer?.masksToBounds = true
+        solidBackground.layer?.backgroundColor = NSColor.black.cgColor
+        container.addSubview(solidBackground)
 
         let hosting = NSHostingView(rootView: rootView)
         hosting.frame = bounds
         hosting.autoresizingMask = [.width, .height]
         hosting.wantsLayer = true
+        hosting.layer?.backgroundColor = NSColor.clear.cgColor
         container.addSubview(hosting)
 
         panel.contentView = container
         spring.attach(to: container)
+        applyThemeBackground()
 
         appState.onRequestHide = { [weak self] in self?.hide(reason: "ui") }
         appState.onRequestActivation = { [weak self] in self?.activateForEditing() }
@@ -118,9 +141,21 @@ final class PanelController {
             self.spring.cancel()
             self.isAnimating = false
         }
+        appState.onThemeChanged = { [weak self] in
+            self?.applyThemeAppearance()
+            self?.applyThemeBackground()
+        }
+        appState.onPanelSizeChanged = { [weak self] in
+            self?.applyPanelSize()
+        }
+        appState.onHotspotAreaChanged = { [weak self] in
+            self?.applyPanelSize()
+        }
 
-        appState.panelWidth = geometry.visible.width
-        Log.info("panel geometry: visible=\(geometry.visible) hidden=\(geometry.hidden) screen=\(screen.frame)")
+        appState.setEffectivePanelWidth(geometry.visible.width)
+        appState.setEffectivePanelHeight(geometry.visible.height)
+        currentLayout = geometry
+        Log.info("panel geometry: visible=\(geometry.visible) hidden=\(geometry.hidden) direction=\(geometry.direction.rawValue) screen=\(screen.frame)")
     }
 
     // MARK: - Geometry
@@ -133,31 +168,60 @@ final class PanelController {
         return NSScreen.main ?? NSScreen.screens.first!
     }
 
-    static func panelSize(for screen: NSScreen) -> NSSize {
-        let frame = screen.frame
-        let width = min(760, max(520, frame.width - 160))
-        let available = screen.visibleFrame.height
-        let height = min(430, max(280, available - 80))
-        return NSSize(width: width, height: height)
+    /// Размер панели с поправкой на экран: за его пределы она не выйдет.
+    static func effectiveSize(width: CGFloat, height: CGFloat, screen: NSScreen) -> NSSize {
+        let maxWidth = max(320, screen.frame.width - 40)
+        let maxHeight = max(220, screen.frame.height - 60)
+        return NSSize(
+            width: max(AppState.minPanelWidth, min(width, maxWidth)).rounded(),
+            height: max(AppState.minPanelHeight, min(height, maxHeight)).rounded()
+        )
     }
 
-    /// Верхняя кромка панели. В режиме `.screenTop` она совпадает с верхом
-    /// экрана и панель перекрывает строку меню; в режиме `.belowMenuBar`
-    /// начинается сразу под ней. Скрытая позиция в обоих случаях выше экрана,
-    /// поэтому панель буквально выезжает из-за верхней кромки.
-    static func geometry(for screen: NSScreen, placement: PanelPlacement = .screenTop) -> (visible: NSRect, hidden: NSRect) {
-        let size = panelSize(for: screen)
-        let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
-        let topY: CGFloat
-        switch placement {
-        case .screenTop: topY = screen.frame.maxY
-        case .belowMenuBar: topY = screen.frame.maxY - menuBarHeight
+    /// Зона появления в точках. Заводская полоса обязана перекрывать строку
+    /// меню: иначе наведение на самый верх экрана не сработает.
+    static func hotspot(for screen: NSScreen,
+                        area: HotspotArea?,
+                        width: CGFloat,
+                        height: CGFloat) -> NSRect {
+        if let area {
+            return area.rect(in: screen.frame)
         }
-        let originX = screen.frame.midX - size.width / 2
-        let visible = NSRect(x: originX.rounded(), y: (topY - size.height).rounded(), width: size.width, height: size.height)
-        // На два пункта выше экрана: между кадрами не должно мелькать ребро.
-        let hidden = NSRect(x: visible.origin.x, y: screen.frame.maxY + 2, width: size.width, height: size.height)
-        return (visible, hidden)
+        let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+        let effectiveHeight = max(height, menuBarHeight)
+        return NSRect(
+            x: (screen.frame.midX - width / 2).rounded(),
+            y: screen.frame.maxY - effectiveHeight,
+            width: width,
+            height: effectiveHeight
+        )
+    }
+
+    static func layout(for screen: NSScreen,
+                       size: NSSize,
+                       hotspot: NSRect,
+                       placement: PanelPlacement) -> PanelLayout {
+        let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
+        return PanelGeometry.layout(
+            size: size,
+            screen: screen.frame,
+            hotspot: hotspot,
+            placement: placement,
+            menuBarHeight: menuBarHeight
+        )
+    }
+
+    /// Геометрия по умолчанию — для `--selftest`, где нет живого состояния.
+    static func geometry(for screen: NSScreen,
+                         placement: PanelPlacement = .screenTop) -> (visible: NSRect, hidden: NSRect) {
+        let size = effectiveSize(width: 760, height: 430, screen: screen)
+        let hotspot = hotspot(for: screen, area: nil, width: 180, height: 24)
+        let result = layout(for: screen, size: size, hotspot: hotspot, placement: placement)
+        return (result.visible, result.hidden)
+    }
+
+    static func hotspotRect(for screen: NSScreen, width: CGFloat, height: CGFloat) -> NSRect {
+        hotspot(for: screen, area: nil, width: width, height: height)
     }
 
     /// Уровень окна. В режиме `.screenTop` панель должна быть строго выше
@@ -171,16 +235,22 @@ final class PanelController {
         }
     }
 
-    /// The invisible hover zone: a strip centred on the top edge of the screen.
-    static func hotspotRect(for screen: NSScreen, width: CGFloat, height: CGFloat) -> NSRect {
-        let menuBarHeight = max(0, screen.frame.maxY - screen.visibleFrame.maxY)
-        let effectiveHeight = max(height, menuBarHeight)
-        return NSRect(
-            x: screen.frame.midX - width / 2,
-            y: screen.frame.maxY - effectiveHeight,
-            width: width,
-            height: effectiveHeight
-        )
+    func panelSize(for screen: NSScreen) -> NSSize {
+        PanelController.effectiveSize(width: appState.panelWidth, height: appState.panelHeight, screen: screen)
+    }
+
+    func effectiveHotspot(for screen: NSScreen) -> NSRect {
+        PanelController.hotspot(for: screen,
+                                area: appState.hotspotArea,
+                                width: appState.hotspotWidth,
+                                height: appState.hotspotHeight)
+    }
+
+    func layout(for screen: NSScreen) -> PanelLayout {
+        PanelController.layout(for: screen,
+                               size: panelSize(for: screen),
+                               hotspot: effectiveHotspot(for: screen),
+                               placement: appState.placement)
     }
 
     /// Exposed for `--showtest` diagnostics.
@@ -190,12 +260,12 @@ final class PanelController {
     var animationFrameSummary: String { spring.frameSummary }
 
     var hotspotRect: NSRect {
-        let screen = PanelController.activeScreen()
-        return PanelController.hotspotRect(
-            for: screen,
-            width: appState.hotspotWidth,
-            height: appState.hotspotHeight
-        )
+        effectiveHotspot(for: PanelController.activeScreen())
+    }
+
+    /// Откуда панель выезжает прямо сейчас — для диагностики.
+    var panelDirection: PanelDirection {
+        currentLayout?.direction ?? .top
     }
 
     // MARK: - Hover state machine
@@ -204,7 +274,7 @@ final class PanelController {
     func handleMouse(at location: NSPoint) {
         // Hover interaction switched off in the menu bar: never auto-show and
         // never auto-hide — the panel is then purely manual.
-        guard appState.hoverEnabled else {
+        guard appState.hoverEnabled, !appState.isEditingHotspot else {
             cancelShow()
             cancelHide()
             return
@@ -289,7 +359,8 @@ final class PanelController {
         guard !isVisible || isAnimating else { return }
 
         let screen = PanelController.activeScreen()
-        let geometry = PanelController.geometry(for: screen, placement: appState.placement)
+        let geometry = layout(for: screen)
+        currentLayout = geometry
 
         if !isVisible {
             panel.setFrame(geometry.hidden, display: false)
@@ -307,21 +378,22 @@ final class PanelController {
             panel.alphaValue = 1
             panel.invalidateShadow()
             nowPlaying.setActive(true)
-            Log.info("panel shown (\(reason)) без анимации frame=\(geometry.visible)")
+            Log.info("panel shown (\(reason)) без анимации frame=\(geometry.visible) direction=\(geometry.direction.rawValue)")
             NotificationCenter.default.post(name: .dynamicBarPanelDidShow, object: nil)
             return
         }
 
         isAnimating = true
-        let startY = panel.frame.origin.y
+        // Обе оси сразу: из угла панель едет по диагонали, а не «сперва
+        // вбок, потом вниз».
         spring.run(
-            from: startY,
-            to: geometry.visible.origin.y,
+            from: panel.frame.origin,
+            to: geometry.visible.origin,
             response: 19,
             damping: 0.78
-        ) { [weak self] y, progress in
+        ) { [weak self] point, progress in
             guard let self else { return }
-            self.panel.setFrameOrigin(NSPoint(x: geometry.visible.origin.x, y: y))
+            self.panel.setFrameOrigin(point)
             // Прозрачность догоняет первую часть пути, иначе панель «проявляется»
             // уже доехав.
             self.panel.alphaValue = min(1, progress * 1.8)
@@ -335,7 +407,7 @@ final class PanelController {
             self.nowPlaying.setActive(true)
         }
 
-        Log.info("panel shown (\(reason)) frame=\(geometry.visible)")
+        Log.info("panel shown (\(reason)) frame=\(geometry.visible) direction=\(geometry.direction.rawValue)")
         NotificationCenter.default.post(name: .dynamicBarPanelDidShow, object: nil)
     }
 
@@ -346,7 +418,8 @@ final class PanelController {
         isHiding = true
 
         let screen = panel.screen ?? PanelController.activeScreen()
-        let geometry = PanelController.geometry(for: screen, placement: appState.placement)
+        let geometry = layout(for: screen)
+        currentLayout = geometry
 
         if appState.animationStyle == .none {
             spring.cancel()
@@ -364,13 +437,13 @@ final class PanelController {
 
         isAnimating = true
         spring.run(
-            from: panel.frame.origin.y,
-            to: geometry.hidden.origin.y,
+            from: panel.frame.origin,
+            to: geometry.hidden.origin,
             response: 22,
             damping: 1.0 // уход без перелёта: подпрыгивать на выходе нечему
-        ) { [weak self] y, progress in
+        ) { [weak self] point, progress in
             guard let self else { return }
-            self.panel.setFrameOrigin(NSPoint(x: geometry.visible.origin.x, y: y))
+            self.panel.setFrameOrigin(point)
             self.panel.alphaValue = max(0, 1 - progress * 1.6)
         } onComplete: { [weak self] in
             guard let self else { return }
@@ -398,14 +471,71 @@ final class PanelController {
         panel.level = PanelController.level(for: appState.placement)
         guard isVisible else { return }
         let screen = panel.screen ?? PanelController.activeScreen()
-        let geometry = PanelController.geometry(for: screen, placement: appState.placement)
+        let geometry = layout(for: screen)
+        currentLayout = geometry
         spring.cancel()
         panel.setFrame(geometry.visible, display: true)
         panel.alphaValue = 1
         isAnimating = false
         isHiding = false
-        appState.panelWidth = geometry.visible.width
-        Log.info("panel placement applied: \(appState.placement) frame=\(geometry.visible)")
+        appState.setEffectivePanelWidth(geometry.visible.width)
+        appState.setEffectivePanelHeight(geometry.visible.height)
+        Log.info("panel placement applied: \(appState.placement) frame=\(geometry.visible) direction=\(geometry.direction.rawValue)")
+    }
+
+    /// Пользователь изменил размер панели или зону появления. Если панель
+    /// открыта, она переезжает и меняет размер сразу — иначе новый размер
+    /// было бы видно только после следующего показа.
+    func applyPanelSize() {
+        let screen = panel.screen ?? PanelController.activeScreen()
+        let geometry = layout(for: screen)
+        currentLayout = geometry
+        appState.setEffectivePanelWidth(geometry.visible.width)
+        appState.setEffectivePanelHeight(geometry.visible.height)
+        spring.cancel()
+        isAnimating = false
+        if isVisible {
+            panel.setFrame(geometry.visible, display: true)
+            panel.alphaValue = 1
+            isHiding = false
+        } else {
+            panel.setFrame(geometry.hidden, display: false)
+        }
+        panel.invalidateShadow()
+        Log.info("panel size applied: \(Int(geometry.visible.width))x\(Int(geometry.visible.height)) direction=\(geometry.direction.rawValue)")
+    }
+
+    // MARK: - Оформление
+
+    /// Тема задаёт внешний вид окна целиком: системный, светлый или тёмный.
+    /// «Чёрная» тоже тёмная, но с непрозрачной подложкой.
+    private func applyThemeAppearance() {
+        if let name = appState.theme.appearanceName {
+            let appearance = NSAppearance(named: name)
+            panel.appearance = appearance
+            NSApp.appearance = appearance
+        } else {
+            panel.appearance = nil
+            NSApp.appearance = nil
+        }
+    }
+
+    private func applyThemeBackground() {
+        switch appState.theme {
+        case .black:
+            blurBackground.isHidden = true
+            solidBackground.isHidden = false
+            solidBackground.layer?.backgroundColor = NSColor.black.cgColor
+            panel.hasShadow = true
+        case .dark:
+            solidBackground.isHidden = true
+            blurBackground.isHidden = false
+            blurBackground.material = .hudWindow
+        case .light, .system:
+            solidBackground.isHidden = true
+            blurBackground.isHidden = false
+            blurBackground.material = .popover
+        }
     }
 
     // MARK: - Focus handling for text entry

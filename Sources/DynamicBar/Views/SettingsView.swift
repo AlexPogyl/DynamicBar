@@ -90,6 +90,15 @@ struct SettingsView: View {
         .padding(16)
     }
 
+    /// Что написано рядом с кнопкой настройки зоны.
+    private var hotspotSummary: String {
+        guard let area = appState.hotspotArea else { return "по умолчанию" }
+        let screen = (NSScreen.main ?? NSScreen.screens.first)?.frame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
+        let rect = area.rect(in: screen)
+        let direction = PanelGeometry.direction(for: rect, in: screen)
+        return "\(Int(rect.width))×\(Int(rect.height)) · \(direction.title)"
+    }
+
     /// Версия из Info.plist: подпись в настройках не должна отставать от сборки.
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
@@ -101,6 +110,26 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Панель")
                 .font(.system(size: 13, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Оформление")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { appState.theme },
+                    set: { appState.setTheme($0) }
+                )) {
+                    ForEach(AppTheme.allCases) { theme in
+                        Text(theme.title).tag(theme)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Text(appState.theme.explanation)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Где появляется")
@@ -144,6 +173,45 @@ struct SettingsView: View {
                     .foregroundStyle(.tertiary)
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Ширина панели")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(Int(appState.panelWidth)) pt")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { appState.panelWidth },
+                    set: { appState.setPanelSize(width: $0, height: appState.panelHeight) }
+                ), in: AppState.minPanelWidth...1400, step: 10)
+
+                HStack {
+                    Text("Высота панели")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(Int(appState.panelHeight)) pt")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: Binding(
+                    get: { appState.panelHeight },
+                    set: { appState.setPanelSize(width: appState.panelWidth, height: $0) }
+                ), in: AppState.minPanelHeight...1000, step: 10)
+
+                HStack {
+                    Button("Сбросить размер") { appState.resetPanelSize() }
+                        .controlSize(.small)
+                    Spacer()
+                    Text("Вкладки и карточки подстраиваются под размер")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
             Toggle("Открывать при наведении на верхний центр", isOn: Binding(
                 get: { appState.hoverEnabled },
                 set: { appState.setHoverEnabled($0) }
@@ -184,6 +252,9 @@ struct SettingsView: View {
                 }
                 Slider(value: $appState.hotspotWidth, in: 120...420, step: 10)
             }
+            .disabled(appState.hotspotArea != nil)
+            .opacity(appState.hotspotArea != nil ? 0.45 : 1)
+            .help(appState.hotspotArea != nil ? "Задана своя зона появления — эти ползунки относятся только к заводской полосе" : "")
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
@@ -195,6 +266,31 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 Slider(value: $appState.hotspotHeight, in: 8...48, step: 2)
+            }
+            .disabled(appState.hotspotArea != nil)
+            .opacity(appState.hotspotArea != nil ? 0.45 : 1)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Зона появления")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Button("Настроить область…") { appState.editHotspotArea() }
+                        .controlSize(.small)
+                    Button("Сбросить") { appState.resetHotspotArea() }
+                        .controlSize(.small)
+                        .disabled(appState.hotspotArea == nil)
+                    Spacer()
+                    Text(hotspotSummary)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
+                Text("Появится серая полоса поверх экрана: перетащите её к любой грани или в угол и растяните за ручки. Панель будет выезжать с этой стороны — сверху, снизу, сбоку или по диагонали из угла.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider()

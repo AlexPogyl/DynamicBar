@@ -15,7 +15,11 @@ enum ScreenshotTest {
         let directory = URL(fileURLWithPath: outputDirectory, isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let appState = AppState()
+        // Состояние из отдельного домена: картинки не должны зависеть от того,
+        // какой размер панели и тему выбрал владелец машины.
+        let stateSuite = "com.dynamicbar.screenshottest.state"
+        UserDefaults.standard.removePersistentDomain(forName: stateSuite)
+        let appState = AppState(defaults: UserDefaults(suiteName: stateSuite) ?? .standard)
         let tabSettings = TabSettings(defaults: UserDefaults(suiteName: "com.dynamicbar.screenshottest") ?? .standard)
         tabSettings.reset()
         let clipboard = ClipboardStore()

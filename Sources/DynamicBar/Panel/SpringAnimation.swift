@@ -29,11 +29,11 @@ final class SpringAnimation {
     private weak var displayView: NSView?
     private var lastTimestamp: CFTimeInterval = 0
 
-    private var value: CGFloat = 0
-    private var target: CGFloat = 0
-    private var velocity: CGFloat = 0
-    private var startValue: CGFloat = 0
-    private var onUpdate: ((CGFloat, CGFloat) -> Void)?
+    private var value: CGPoint = .zero
+    private var target: CGPoint = .zero
+    private var velocity: CGPoint = .zero
+    private var startValue: CGPoint = .zero
+    private var onUpdate: ((CGPoint, CGFloat) -> Void)?
     private var onComplete: (() -> Void)?
 
     /// Статистика кадров последнего прогона — по ней видно, ровно ли идёт
@@ -67,7 +67,7 @@ final class SpringAnimation {
         displayView = view
     }
 
-    /// `onUpdate` получает текущее значение и нормированный прогресс 0…1.
+    /// Скалярный вариант: панель, которая едет по одной оси.
     func run(from: CGFloat,
              to: CGFloat,
              initialVelocity: CGFloat = 0,
@@ -75,13 +75,36 @@ final class SpringAnimation {
              damping: CGFloat = 0.78,
              onUpdate: @escaping (CGFloat, CGFloat) -> Void,
              onComplete: (() -> Void)? = nil) {
+        run(from: CGPoint(x: from, y: 0),
+            to: CGPoint(x: to, y: 0),
+            initialVelocity: CGVector(dx: initialVelocity, dy: 0),
+            response: response,
+            damping: damping) { point, progress in
+            onUpdate(point.x, progress)
+        } onComplete: {
+            onComplete?()
+        }
+    }
+
+    /// Векторный вариант: панель выезжает из любого края и из угла по
+    /// диагонали. Обе оси интегрируются одним шагом, поэтому диагональ идёт
+    /// ровной линией, а не «сначала вбок, потом вниз».
+    ///
+    /// `onUpdate` получает текущую точку и нормированный прогресс 0…1.
+    func run(from: CGPoint,
+             to: CGPoint,
+             initialVelocity: CGVector = .zero,
+             response: CGFloat = 19.0,
+             damping: CGFloat = 0.78,
+             onUpdate: @escaping (CGPoint, CGFloat) -> Void,
+             onComplete: (() -> Void)? = nil) {
         cancel()
         omega = response
         zeta = damping
         value = from
         startValue = from
         target = to
-        velocity = initialVelocity
+        velocity = CGPoint(x: initialVelocity.dx, y: initialVelocity.dy)
         self.onUpdate = onUpdate
         self.onComplete = onComplete
 
@@ -155,16 +178,28 @@ final class SpringAnimation {
 
         let stiffness = omega * omega
         let damping = 2 * zeta * omega
-        let acceleration = stiffness * (target - value) - damping * velocity
-        velocity += acceleration * dt
-        value += velocity * dt
+        let acceleration = CGVector(
+            dx: stiffness * (target.x - value.x) - damping * velocity.x,
+            dy: stiffness * (target.y - value.y) - damping * velocity.y
+        )
+        velocity.x += acceleration.dx * dt
+        velocity.y += acceleration.dy * dt
+        value.x += velocity.x * dt
+        value.y += velocity.y * dt
 
-        let span = target - startValue
-        let progress = abs(span) > 0.001 ? (value - startValue) / span : 1
+        // Прогресс — доля пройденного пути по прямой, а не по одной оси:
+        // иначе на диагонали полупрозрачность догоняла бы раньше времени.
+        let dx = target.x - startValue.x
+        let dy = target.y - startValue.y
+        let totalDistance = (dx * dx + dy * dy).squareRoot()
+        let travelled = ((value.x - startValue.x) * (value.x - startValue.x)
+                         + (value.y - startValue.y) * (value.y - startValue.y)).squareRoot()
+        let progress = totalDistance > 0.001 ? travelled / totalDistance : 1
         onUpdate?(value, min(max(progress, 0), 1))
 
-        let settled = abs(target - value) < 0.35 && abs(velocity) < 4
-        if settled {
+        let settledX = abs(target.x - value.x) < 0.35 && abs(velocity.x) < 4
+        let settledY = abs(target.y - value.y) < 0.35 && abs(velocity.y) < 4
+        if settledX && settledY {
             let completion = onComplete
             cancel()
             value = target

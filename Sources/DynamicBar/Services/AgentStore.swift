@@ -261,12 +261,16 @@ final class AgentStore: ObservableObject {
     // MARK: - План
 
     enum Plan {
+        /// Ядро на Rust: быстрее и не требует Node.
+        case core(binary: String, dshHome: String)
+        /// Запасной путь для сборок без Rust-ядра.
         case collector(node: String, script: String, dshHome: String)
         case file(URL)
         case command(String)
 
         var label: String {
             switch self {
+            case .core: return "ядро Rust"
             case .collector: return "сборщик DSH"
             case .file: return "файл"
             case .command: return "команда"
@@ -313,6 +317,9 @@ final class AgentStore: ObservableObject {
         case .auto:
             let home = Self.dshHome
             let hasDSH = FileManager.default.fileExists(atPath: home)
+            if hasDSH, let core = Self.corePath() {
+                return .core(binary: core, dshHome: home)
+            }
             if hasDSH, let node = Self.nodePath(), let script = Self.collectorPath() {
                 return .collector(node: node, script: script, dshHome: home)
             }
@@ -351,6 +358,17 @@ final class AgentStore: ObservableObject {
             return found
         }
         return nil
+    }
+
+    /// Ядро на Rust лежит внутри .app рядом со сборщиком на Node.
+    static func corePath() -> String? {
+        let candidates = [
+            Bundle.main.url(forResource: "dsh-core", withExtension: nil)?.path,
+            Bundle.main.resourceURL?.appendingPathComponent("dsh-core").path,
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/DynamicBar/dsh-core").path,
+        ].compactMap { $0 }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     /// Сборщик лежит внутри .app. Копия в Application Support нужна для
@@ -439,6 +457,20 @@ final class AgentStore: ObservableObject {
     ) -> Result<AgentSnapshot, AgentError> {
         let data: Data
         switch plan {
+        case .core(let binary, let dshHome):
+            do {
+                data = try run(
+                    executable: binary,
+                    arguments: ["--json", "--dsh-home", dshHome],
+                    timeout: 20,
+                    processLock: processLock,
+                    register: register
+                )
+            } catch let error as AgentError {
+                return .failure(error)
+            } catch {
+                return .failure(.process(error.localizedDescription))
+            }
         case .collector(let node, let script, let dshHome):
             do {
                 data = try run(

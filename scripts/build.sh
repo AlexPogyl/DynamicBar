@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="DynamicBar"
 BUNDLE_ID="com.dynamicbar.DynamicBar"
-VERSION="1.2.0"
+VERSION="1.3.0"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$APP_NAME.app"
 ARCHS="${ARCHS:-x86_64}"
@@ -97,6 +97,24 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Contents/Info.plist" >/dev/null
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist" >/dev/null
 printf 'APPL????' > "$APP/Contents/PkgInfo"
+
+# --------------------------------------------------------------- rust core -----
+# Ядро на Rust собирает снимок агента без Node. Если cargo нет — сборка
+# продолжается: вкладка «Агент» откатится на сборщик на Node.
+CORE_DIR="$ROOT/core"
+if command -v cargo >/dev/null 2>&1 && [ -f "$CORE_DIR/Cargo.toml" ]; then
+  echo "==> building rust core"
+  if (cd "$CORE_DIR" && cargo build --release --quiet 2>"$BUILD_DIR/core-build.log"); then
+    cp "$CORE_DIR/target/release/dsh-core" "$APP/Contents/Resources/dsh-core"
+    chmod +x "$APP/Contents/Resources/dsh-core"
+    codesign --force --sign - --timestamp=none "$APP/Contents/Resources/dsh-core" >/dev/null 2>&1 || true
+    echo "    core:    dsh-core ($(du -h "$APP/Contents/Resources/dsh-core" | cut -f1))"
+  else
+    echo "    WARNING: rust core не собрался (см. build/core-build.log)" >&2
+  fi
+else
+  echo "    (cargo не найден — ядро на Rust пропущено)"
+fi
 
 # ------------------------------------------------------------- agent collector --
 # Вкладка «Агент» запускает этот файл через Node. Держим его в бандле, чтобы

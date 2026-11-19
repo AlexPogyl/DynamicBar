@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let volume = SystemVolume()
     private let tabSettings = TabSettings()
     private var settingsWindow: SettingsWindowController?
+    private let hotspotEditor = HotspotEditorController()
 
     private var panelController: PanelController!
     private var hotspot: HotspotMonitor!
@@ -101,6 +102,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusItemController.onOpenSettings = openSettings
         appState.onOpenSettings = openSettings
+        appState.onEditHotspot = { [weak self] in
+            guard let self else { return }
+            self.settingsWindow?.close()
+            self.hotspotEditor.begin(appState: self.appState)
+        }
 
         // Иконку в строке меню можно спрятать — тогда единственный путь к
         // настройкам это шестерёнка в панели, поэтому состояние применяем сразу.

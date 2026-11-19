@@ -85,6 +85,26 @@ grep -q "agent" <<< "$(DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --settingstest 2>/dev/nul
   && AGENT_TAB=0 || AGENT_TAB=1
 check $AGENT_TAB "вкладка «Агент» есть в списке вкладок"
 
+CORE="$APP/Contents/Resources/dsh-core"
+[ -x "$CORE" ]; check $? "ядро на Rust лежит в бандле и исполняемо"
+if [ -x "$CORE" ]; then
+  "$CORE" --version | grep -q "dsh-core"; check $? "ядро отвечает на --version"
+  "$CORE" --json --dsh-home "$HOME/.dsh" > "$OUT/core.json" 2>"$OUT/core.err"
+  check $? "ядро собирает снимок без ошибок"
+  python3 - "$OUT/core.json" > "$OUT/core-fields.txt" 2>&1 <<'CORE_PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert data["schemaVersion"] == 1
+assert "today" in data and "agent" in data and "balance" in data
+print("today.billable=", data["today"]["billable"])
+print("agent.status=", data["agent"]["status"])
+print("sessions=", len(data["agent"]["sessions"]))
+CORE_PY
+  check $? "снимок ядра по схеме и разбирается"
+  sed 's/^/      /' "$OUT/core-fields.txt"
+  grep -q "agent.status=" "$OUT/core-fields.txt"; check $? "ядро определило состояние агента"
+fi
+
 if command -v node >/dev/null 2>&1 && [ -d "$HOME/.dsh" ]; then
   DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --agenttest > "$OUT/agenttest.log" 2>&1
   check $? "--agenttest завершается без ошибок"
@@ -95,6 +115,28 @@ if command -v node >/dev/null 2>&1 && [ -d "$HOME/.dsh" ]; then
   grep -q "balance:" "$OUT/agenttest.log"; check $? "баланс получен"
   grep "tokens today:" "$OUT/agenttest.log" | sed 's/^/      /'
   grep "rub:" "$OUT/agenttest.log" | sed 's/^/      /'
+
+  # Ядро на Rust и сборщик на Node обязаны считать одинаково: защита от
+  # расхождения двух реализаций одного формата.
+  if [ -x "$CORE" ] && [ -f "$ROOT/scripts/agent/dsh-collector.mjs" ]; then
+    node "$ROOT/scripts/agent/dsh-collector.mjs" --json --no-balance > "$OUT/node.json" 2>/dev/null
+    "$CORE" --json --no-balance --dsh-home "$HOME/.dsh" > "$OUT/rust.json" 2>/dev/null
+    python3 - "$OUT/node.json" "$OUT/rust.json" > "$OUT/compare.txt" 2>&1 <<'CMP_PY'
+import json, sys
+node = json.load(open(sys.argv[1]))
+rust = json.load(open(sys.argv[2]))
+checks = {
+    "billable": node["today"]["billable"] == rust["today"]["billable"],
+    "cacheRead": node["today"]["cacheRead"] == rust["today"]["cacheRead"],
+    "status": node["agent"]["status"] == rust["agent"]["status"],
+}
+for name, ok in checks.items():
+    print(f"{name}={'ok' if ok else 'FAIL'}")
+raise SystemExit(0 if all(checks.values()) else 1)
+CMP_PY
+    check $? "ядро на Rust и сборщик на Node считают одинаково"
+    sed 's/^/      /' "$OUT/compare.txt"
+  fi
 else
   # На машине без Node и DSH вкладка обязана честно сообщить об этом, а не упасть.
   DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --agenttest > "$OUT/agenttest.log" 2>&1
@@ -102,15 +144,27 @@ else
   grep -q "AGENTTEST FAIL" "$OUT/agenttest.log"; check $? "без Node и DSH вкладка показывает понятную ошибку"
 fi
 
+# --------------------------------------------- 3c тема, размер и зона --------
+step "3c. Оформление, размер и зона появления"
+DYNAMICBAR_ALLOW_MULTI=1 "$BIN" --hotspotedit > "$OUT/hotspotedit.log" 2>&1
+check $? "--hotspotedit завершается без ошибок"
+grep -q "HOTSPOTEDIT OK" "$OUT/hotspotedit.log"; check $? "редактор зоны открывается и закрывается"
+grep -q "HOTSPOTEDIT closed=true" "$OUT/hotspotedit.log"; check $? "после закрытия редактор не остаётся активным"
+grep "HOTSPOTEDIT editing=" "$OUT/hotspotedit.log" | sed 's/^/      /'
+
 # ------------------------------------------------------------- 4 render ------
 step "4. UI render"
 "$BIN" --rendertest "$OUT/render" > "$OUT/rendertest.log" 2>&1
 check $? "--rendertest exits 0"
 grep -q "RENDERTEST OK" "$OUT/rendertest.log"; check $? "all panel tabs rasterised"
 COUNT=$(ls "$OUT/render"/*.png 2>/dev/null | wc -l | tr -d ' ')
-[ "$COUNT" -ge 20 ]; check $? "produced $COUNT panel images"
+[ "$COUNT" -ge 25 ]; check $? "produced $COUNT panel images"
 [ -f "$OUT/render/panel-dark-agent.png" ]; check $? "вкладка «Агент» отрисована (тёмная тема)"
 [ -f "$OUT/render/panel-light-agent.png" ]; check $? "вкладка «Агент» отрисована (светлая тема)"
+[ -f "$OUT/render/panel-black-clipboard.png" ]; check $? "fully black theme rasterised"
+[ -f "$OUT/render/panel-dark-small.png" ]; check $? "minimum panel size rasterised"
+[ -f "$OUT/render/panel-dark-large.png" ]; check $? "large panel size rasterised"
+grep -q "panel-black-clipboard" <<< "$(ls "$OUT/render")" ; check $? "black theme output present"
 
 # ------------------------------------------------------------- 5 show test ---
 step "5. Panel show/hide machinery (window server level)"
@@ -132,7 +186,13 @@ grep "SHOWTEST status-item=" "$OUT/showtest.log" | head -1 | sed 's/^/      /'
 grep -q "window\[shown\] layer=26" "$OUT/showtest.log"; check $? "panel window is at layer 26, above the menu bar (24-25)"
 grep -q "window\[shown\].*onscreen=true" "$OUT/showtest.log"; check $? "window server reports the panel as on screen"
 grep -q "window\[hidden\] none" "$OUT/showtest.log"; check $? "no DynamicBar window while hidden (menu bar clicks unaffected)"
-grep -qE "menubar-layer\[shown\] (2[4-9]|[3-9][0-9])" "$OUT/showtest.log"; check $? "menu bar window sits above the panel"
+# Строка меню может быть скрыта самой системой (например, когда курсор уехал
+# вниз). Тогда проверять нечего — это не поломка приложения.
+if grep -q "нет окна строки меню" "$OUT/showtest.log"; then
+  ok "строка меню скрыта в этой сессии — слои сравнивать не с чем"
+else
+  grep -qE "menubar-layer\[shown\] (2[4-9]|[3-9][0-9])" "$OUT/showtest.log"; check $? "menu bar window sits above the panel"
+fi
 
 # Панель должна начинаться от самой кромки экрана: y=0 в координатах
 # window-сервера (отсчёт сверху).

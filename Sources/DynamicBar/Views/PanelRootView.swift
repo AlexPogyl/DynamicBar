@@ -20,10 +20,12 @@ struct PanelRootView: View {
             Divider().opacity(0.35)
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            Divider().opacity(0.35)
-            footer
+            if appState.effectivePanelHeight >= 300 {
+                Divider().opacity(0.35)
+                footer
+            }
         }
-        .background(Color.clear)
+        .background(panelBackground)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -37,6 +39,18 @@ struct PanelRootView: View {
                 appState.selectedTab = first
                 appState.isEditingText = false
             }
+        }
+    }
+
+    /// «Чёрная» тема рисует непрозрачную подложку прямо в SwiftUI: так она
+    /// попадает и в оффскрин-рендер, и не зависит от вибро-слоя окна.
+    @ViewBuilder
+    private var panelBackground: some View {
+        if appState.theme == .black {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.black)
+        } else {
+            Color.clear
         }
     }
 
@@ -81,7 +95,7 @@ struct PanelRootView: View {
     private var useCompactTabs: Bool {
         let tabs = tabSettings.orderedVisibleTabs
         guard !tabs.isEmpty else { return false }
-        let width = appState.panelWidth
+        let width = appState.effectivePanelWidth
         // 40 pt на вкладку — иконка, отступы и поля; 7.2 pt на символ при 12 pt.
         let labels = tabs.reduce(CGFloat(0)) { $0 + CGFloat($1.title.count) * 7.2 + 40 }
         let spacing = CGFloat(tabs.count - 1) * 4

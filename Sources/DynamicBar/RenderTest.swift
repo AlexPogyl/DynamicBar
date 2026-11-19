@@ -63,7 +63,11 @@ enum RenderTest {
             _ = image
         }
 
-        let appState = AppState()
+        // Состояние из отдельного домена: картинки не должны зависеть от того,
+        // какой размер панели и тему выбрал владелец машины.
+        let stateSuite = "com.dynamicbar.rendertest.state"
+        UserDefaults.standard.removePersistentDomain(forName: stateSuite)
+        let appState = AppState(defaults: UserDefaults(suiteName: stateSuite) ?? .standard)
         let tabSettings = TabSettings(defaults: UserDefaults(suiteName: "com.dynamicbar.rendertest") ?? .standard)
         tabSettings.reset()
         let size = NSSize(width: 760, height: 430)
@@ -105,7 +109,53 @@ enum RenderTest {
             print("RENDERTEST wrote \(emptyURL.path)")
         }
 
-        // Окно настроек — отдельно, у него своя ширина.
+        appState.setEffectivePanelWidth(760)
+        appState.setEffectivePanelHeight(430)
+
+        // Чёрная тема: отдельное состояние, чтобы не трогать настройки
+        // настоящего приложения.
+        let blackDefaults = UserDefaults(suiteName: "com.dynamicbar.rendertest.theme") ?? .standard
+        blackDefaults.removePersistentDomain(forName: "com.dynamicbar.rendertest.theme")
+        let blackState = AppState(defaults: blackDefaults)
+        blackState.setTheme(.black)
+        blackState.selectedTab = .clipboard
+        let blackURL = directory.appendingPathComponent("panel-black-clipboard.png")
+        render(
+            root: PanelRootView(appState: blackState, clipboard: clipboard, snippets: snippets, notes: notes, apps: apps, runningApps: runningApps, translation: translation, nowPlaying: nowPlaying, volume: volume, tabSettings: tabSettings, agent: agent),
+            size: size,
+            appearance: .darkAqua,
+            to: blackURL
+        )
+        print("RENDERTEST wrote \(blackURL.path)")
+
+        // Крайние размеры панели: интерфейс должен подстраиваться, а не
+        // обрезаться. Маленькая — для проверки компактной шапки и подвала.
+        appState.selectedTab = .clipboard
+        appState.setEffectivePanelWidth(480)
+        appState.setEffectivePanelHeight(300)
+        let smallURL = directory.appendingPathComponent("panel-dark-small.png")
+        render(
+            root: PanelRootView(appState: appState, clipboard: clipboard, snippets: snippets, notes: notes, apps: apps, runningApps: runningApps, translation: translation, nowPlaying: nowPlaying, volume: volume, tabSettings: tabSettings, agent: agent),
+            size: NSSize(width: 480, height: 300),
+            appearance: .darkAqua,
+            to: smallURL
+        )
+        print("RENDERTEST wrote \(smallURL.path)")
+
+        appState.selectedTab = .music
+        appState.setEffectivePanelWidth(1300)
+        appState.setEffectivePanelHeight(820)
+        let largeURL = directory.appendingPathComponent("panel-dark-large.png")
+        render(
+            root: PanelRootView(appState: appState, clipboard: clipboard, snippets: snippets, notes: notes, apps: apps, runningApps: runningApps, translation: translation, nowPlaying: nowPlaying, volume: volume, tabSettings: tabSettings, agent: agent),
+            size: NSSize(width: 1300, height: 820),
+            appearance: .darkAqua,
+            to: largeURL
+        )
+        print("RENDERTEST wrote \(largeURL.path)")
+
+        // Окно настроек — отдельно, у него своя ширина. Высокий вариант нужен,
+        // чтобы видеть все секции целиком: окно прокручивается.
         for appearance in [NSAppearance.Name.darkAqua, .aqua] {
             let label = appearance == .darkAqua ? "dark" : "light"
             let url = directory.appendingPathComponent("settings-\(label).png")
@@ -116,6 +166,15 @@ enum RenderTest {
                 to: url
             )
             print("RENDERTEST wrote \(url.path)")
+
+            let tallURL = directory.appendingPathComponent("settings-\(label)-full.png")
+            render(
+                root: SettingsView(tabSettings: tabSettings, appState: appState, translation: translation, agent: agent),
+                size: NSSize(width: 460, height: 1150),
+                appearance: appearance,
+                to: tallURL
+            )
+            print("RENDERTEST wrote \(tallURL.path)")
         }
 
         print("RENDERTEST OK")

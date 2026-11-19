@@ -545,6 +545,91 @@ enum StoreTest {
         check("age says hours", AgentFormat.age(reference.addingTimeInterval(-7200), now: reference) == "2 ч назад")
         check("duration formats", AgentFormat.duration(200) == "3 мин", AgentFormat.duration(200))
 
+        // 20 — геометрия выезда: восемь направлений и зона появления.
+        let screen = NSRect(x: 0, y: 0, width: 1000, height: 800)
+        func hotspotAt(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat = 180, _ h: CGFloat = 24) -> NSRect {
+            NSRect(x: x, y: y, width: w, height: h)
+        }
+        check("зона сверху даёт выезд сверху",
+              PanelGeometry.direction(for: hotspotAt(410, 776), in: screen) == .top)
+        check("зона снизу даёт выезд снизу",
+              PanelGeometry.direction(for: hotspotAt(410, 0), in: screen) == .bottom)
+        check("зона слева даёт выезд слева",
+              PanelGeometry.direction(for: hotspotAt(0, 400), in: screen) == .left)
+        check("зона справа даёт выезд справа",
+              PanelGeometry.direction(for: hotspotAt(820, 400), in: screen) == .right)
+        check("правый верхний угол — диагональ",
+              PanelGeometry.direction(for: hotspotAt(820, 776), in: screen) == .topRight)
+        check("левый нижний угол — диагональ",
+              PanelGeometry.direction(for: hotspotAt(0, 0), in: screen) == .bottomLeft)
+        check("правый нижний угол — диагональ",
+              PanelGeometry.direction(for: hotspotAt(820, 0), in: screen) == .bottomRight)
+        check("левый верхний угол — диагональ",
+              PanelGeometry.direction(for: hotspotAt(0, 776), in: screen) == .topLeft)
+        check("зона в середине прижимается к ближайшей стороне",
+              PanelGeometry.direction(for: hotspotAt(500, 400), in: screen) == .top)
+
+        let size = NSSize(width: 600, height: 400)
+        let top = PanelGeometry.layout(size: size, screen: screen,
+                                       hotspot: hotspotAt(410, 776),
+                                       placement: .screenTop, menuBarHeight: 30)
+        check("панель сверху прижата к верхней кромке", top.visible.maxY == screen.maxY, "\(top.visible)")
+        check("панель сверху центрирована по зоне", abs(top.visible.midX - 500) < 1, "\(top.visible)")
+        check("скрытая позиция сверху — выше экрана", top.hidden.minY > screen.maxY, "\(top.hidden)")
+
+        let bottom = PanelGeometry.layout(size: size, screen: screen,
+                                          hotspot: hotspotAt(410, 0),
+                                          placement: .screenTop, menuBarHeight: 30)
+        check("панель снизу прижата к нижней кромке", bottom.visible.minY == screen.minY, "\(bottom.visible)")
+        check("скрытая позиция снизу — ниже экрана", bottom.hidden.maxY < screen.minY, "\(bottom.hidden)")
+
+        let corner = PanelGeometry.layout(size: size, screen: screen,
+                                          hotspot: hotspotAt(820, 776),
+                                          placement: .screenTop, menuBarHeight: 30)
+        check("из угла панель прижата к двум кромкам",
+              corner.visible.maxX == screen.maxX && corner.visible.maxY == screen.maxY, "\(corner.visible)")
+        check("из угла панель прячется по диагонали",
+              corner.hidden.minX > screen.maxX && corner.hidden.minY > screen.maxY, "\(corner.hidden)")
+
+        let left = PanelGeometry.layout(size: size, screen: screen,
+                                        hotspot: hotspotAt(0, 400),
+                                        placement: .screenTop, menuBarHeight: 30)
+        check("слева панель прижата к левой кромке", left.visible.minX == screen.minX, "\(left.visible)")
+        check("слева панель центрирована по зоне", abs(left.visible.midY - 412) < 1, "\(left.visible)")
+        check("слева скрытая позиция левее экрана", left.hidden.maxX < screen.minX, "\(left.hidden)")
+
+        // Зона хранится нормированной и переживает смену разрешения.
+        let area = HotspotArea.from(rect: NSRect(x: 100, y: 700, width: 200, height: 40), in: screen)
+        let restoredArea = area.rect(in: screen)
+        check("зона переживает сохранение и восстановление",
+              abs(restoredArea.minX - 100) < 1 && abs(restoredArea.minY - 700) < 1
+              && abs(restoredArea.width - 200) < 1 && abs(restoredArea.height - 40) < 1, "\(restoredArea)")
+        let biggerScreen = NSRect(x: 0, y: 0, width: 2000, height: 1600)
+        let scaled = area.rect(in: biggerScreen)
+        check("зона масштабируется вместе с экраном",
+              abs(scaled.width - 400) < 1, "ширина \(scaled.width)")
+        check("минимальный размер зоны соблюдается",
+              HotspotArea.from(rect: NSRect(x: 10, y: 10, width: 1, height: 1), in: screen).rect(in: screen).width >= HotspotArea.minWidth)
+
+        // Размер панели и тема: пределы и сохранение.
+        let sizeSuite = "com.dynamicbar.test.panelsize"
+        UserDefaults.standard.removePersistentDomain(forName: sizeSuite)
+        let sizeDefaults = UserDefaults(suiteName: sizeSuite)!
+        let sizeState = AppState(defaults: sizeDefaults)
+        sizeState.setPanelSize(width: 100, height: 100)
+        check("слишком маленький размер поднимается до минимума",
+              sizeState.panelWidth == AppState.minPanelWidth && sizeState.panelHeight == AppState.minPanelHeight,
+              "\(sizeState.panelWidth)x\(sizeState.panelHeight)")
+        sizeState.setPanelSize(width: 900, height: 600)
+        let restoredState = AppState(defaults: sizeDefaults)
+        check("размер панели переживает перезапуск",
+              restoredState.panelWidth == 900 && restoredState.panelHeight == 600,
+              "\(restoredState.panelWidth)x\(restoredState.panelHeight)")
+        check("тема по умолчанию — тёмная", restoredState.theme == .dark, restoredState.theme.rawValue)
+        restoredState.setTheme(.black)
+        check("чёрная тема сохраняется", AppState(defaults: sizeDefaults).theme == .black)
+        UserDefaults.standard.removePersistentDomain(forName: sizeSuite)
+
         clipboard.stop()
 
         // Restore the user's pasteboard.

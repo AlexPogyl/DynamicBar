@@ -316,6 +316,35 @@ enum Diagnostics {
         print("AUTOSTARTTEST OK")
     }
 
+    // MARK: - Зона появления
+
+    /// `--hotspotedit` — открывает редактор зоны, держит его N секунд и
+    /// закрывает. Проверяет, что окно редактора и подсказка создаются, а
+    /// состояние приложения возвращается в исходное.
+    static func hotspotEditorTest(seconds: TimeInterval) {
+        _ = NSApplication.shared
+        NSApp.setActivationPolicy(.accessory)
+        let state = AppState()
+        let controller = HotspotEditorController()
+        controller.begin(appState: state)
+        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+        let editing = state.isEditingHotspot
+        print("HOTSPOTEDIT editing=\(editing) area=\(describeHotspot(state.hotspotArea))")
+        controller.cancelForTesting()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        print("HOTSPOTEDIT closed=\(!state.isEditingHotspot)")
+        print(editing ? "HOTSPOTEDIT OK" : "HOTSPOTEDIT FAIL — редактор не открылся")
+        exit(editing ? 0 : 1)
+    }
+
+    private static func describeHotspot(_ area: HotspotArea?) -> String {
+        guard let area else { return "по умолчанию" }
+        let screen = (NSScreen.main ?? NSScreen.screens.first)?.frame ?? .zero
+        let rect = area.rect(in: screen)
+        let direction = PanelGeometry.direction(for: rect, in: screen)
+        return "\(Int(rect.width))x\(Int(rect.height)) @ \(Int(rect.minX)),\(Int(rect.minY)) direction=\(direction.rawValue)"
+    }
+
     // MARK: - Агент
 
     /// `--agenttest` — проверяет сквозной путь вкладки «Агент»: находит Node и
@@ -325,6 +354,7 @@ enum Diagnostics {
         let store = AgentStore()
         print("  source:           \(store.source.rawValue)")
         print("  node:             \(AgentStore.nodePath() ?? "не найден")")
+        print("  core:             \(AgentStore.corePath() ?? "не найден")")
         print("  collector:        \(AgentStore.collectorPath() ?? "не найден")")
         print("  dsh home:         \(AgentStore.dshHome)")
 

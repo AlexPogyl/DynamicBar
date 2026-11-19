@@ -43,6 +43,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Закрыть окно — например, когда открывается редактор зоны появления.
+    func close() {
+        window?.close()
+        window = nil
+    }
+
     func show() {
         if window == nil {
             let view = SettingsView(tabSettings: tabSettings, appState: appState, translation: translation, agent: agent)

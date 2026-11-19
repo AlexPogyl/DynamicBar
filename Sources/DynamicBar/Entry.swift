@@ -50,6 +50,11 @@ enum DynamicBarMain {
             exit(0)
         }
 
+        if args.contains("--hotspotedit") {
+            Diagnostics.hotspotEditorTest(seconds: 2.0)
+            exit(0)
+        }
+
         if args.contains("--agenttest") {
             Diagnostics.agentTest()
             exit(0)

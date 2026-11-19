@@ -3,6 +3,25 @@ import SwiftUI
 /// Вкладка «Музыка». Данные приходят из системного Now Playing через
 /// perl-хелпер, поэтому название, исполнитель, обложка и позиция живые.
 /// Громкость — системная: плеерную macOS через Now Playing не отдаёт.
+/// Геометрия вкладки «Музыка» под текущий размер панели.
+struct MusicMetrics {
+    var artwork: CGFloat
+    var textWidth: CGFloat
+    var sliderWidth: CGFloat
+
+    static func fit(in size: CGSize) -> MusicMetrics {
+        let width = max(240, size.width)
+        let height = max(160, size.height)
+        // Обложка растёт с высотой, но не съедает текст на узкой панели.
+        let artwork = max(72, min(min(height * 0.44, 200), width * 0.30))
+        let text = max(150, width - artwork - 26)
+        let slider = max(110, min(280, width * 0.42))
+        return MusicMetrics(artwork: artwork, textWidth: text, sliderWidth: slider)
+    }
+
+    static let standard = MusicMetrics(artwork: 124, textWidth: 380, sliderWidth: 220)
+}
+
 struct MusicTabView: View {
     @ObservedObject var nowPlaying: NowPlayingService
     @ObservedObject var volume: SystemVolume
@@ -13,15 +32,24 @@ struct MusicTabView: View {
     /// То же для громкости.
     @State private var volumeDraft: Float?
 
-    private let artworkSide: CGFloat = 124
-    private let textColumnWidth: CGFloat = 380
+    /// Размеры, которые подстраиваются под панель: обложка и колонка текста
+    /// раньше были фиксированными и на узкой панели обрезались.
+    /// Размеры пересчитываются при каждом изменении панели: обложка, колонка
+    /// текста и ползунок громкости подстраиваются, а не обрезаются.
+    @State private var metrics: MusicMetrics = .standard
 
     var body: some View {
-        Group {
-            if nowPlaying.hasTrack {
-                player
-            } else {
-                emptyState
+        GeometryReader { proxy in
+            Group {
+                if nowPlaying.hasTrack {
+                    player
+                } else {
+                    emptyState
+                }
+            }
+            .onAppear { metrics = MusicMetrics.fit(in: proxy.size) }
+            .onChange(of: proxy.size) { newSize in
+                metrics = MusicMetrics.fit(in: newSize)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -130,7 +158,7 @@ struct MusicTabView: View {
 
             Spacer(minLength: 8)
         }
-        .frame(width: textColumnWidth, height: artworkSide, alignment: .leading)
+        .frame(width: metrics.textWidth, height: metrics.artwork, alignment: .leading)
     }
 
     /// Система часто повторяет название в поле альбома — показывать
@@ -178,7 +206,7 @@ struct MusicTabView: View {
                 }
             }
         }
-        .frame(width: artworkSide, height: artworkSide)
+        .frame(width: metrics.artwork, height: metrics.artwork)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -284,7 +312,7 @@ struct MusicTabView: View {
                     volume.isDragging = false
                 }
             )
-            .frame(width: 220)
+            .frame(width: metrics.sliderWidth)
 
             Text("\(Int(((volumeDraft ?? volume.level) * 100).rounded()))%")
                 .font(.system(size: 10, design: .monospaced))

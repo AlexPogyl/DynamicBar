@@ -12,6 +12,10 @@
 		<data>
 		4YZBWUv+rhLFEELCpjx2OwIdbs4=
 		</data>
+		<key>Resources/dsh-core</key>
+		<data>
+		CYP/h4sYL4eHwkHbuKykiRbB4/Y=
+		</data>
 		<key>Resources/libdynamicbarmedia.dylib</key>
 		<data>
 		3A0kNDc+YnFmVSBYBcMFh+rF6p8=
@@ -31,6 +35,13 @@
 			<key>hash2</key>
 			<data>
 			7jCRjMzuo6wF2FrBsKmWwBtnFDBI4cJlmfuA0aHfN5s=
+			</data>
+		</dict>
+		<key>Resources/dsh-core</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			GRUF370v053HHdq4zodjSY4ySn+Knc4jkcW+nnPugog=
 			</data>
 		</dict>
 		<key>Resources/libdynamicbarmedia.dylib</key>
