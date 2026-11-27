@@ -31,6 +31,11 @@ struct SettingsView: View {
         }
         .frame(width: 460)
         .background(Color(nsColor: .windowBackgroundColor))
+        // Автозапуск можно переключить и из меню в строке меню, поэтому при
+        // каждом показе окна читаем настоящее состояние, а не помним старое.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            launchAtLogin = LaunchAtLogin.isEnabled
+        }
     }
 
     // MARK: - Вкладки
@@ -88,6 +93,26 @@ struct SettingsView: View {
             }
         }
         .padding(16)
+    }
+
+    private var autostartExplanation: String {
+        if LaunchAtLogin.requiresApproval {
+            return "Система приняла регистрацию, но ждёт подтверждения: включите DynamicBar в «Элементах входа и расширениях»."
+        }
+        return launchAtLogin
+            ? "DynamicBar запускается сам после входа в систему. Кнопка выше это выключает."
+            : "DynamicBar не запускается сам. Включить можно этой же кнопкой."
+    }
+
+    /// Открывает системные настройки на списке элементов входа.
+    private func openLoginItemsSettings() {
+        let candidates = [
+            "x-apple.systempreferences:com.apple.LoginItems-Settings.extension",
+            "x-apple.systempreferences:com.apple.preferences.users",
+        ]
+        for candidate in candidates {
+            if let url = URL(string: candidate), NSWorkspace.shared.open(url) { return }
+        }
     }
 
     /// Что написано рядом с кнопкой настройки зоны.
@@ -317,14 +342,38 @@ struct SettingsView: View {
 
             Divider()
 
-            Toggle("Запускать при входе в систему", isOn: Binding(
-                get: { launchAtLogin },
-                set: { newValue in
-                    _ = LaunchAtLogin.setEnabled(newValue)
-                    launchAtLogin = LaunchAtLogin.isEnabled
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(launchAtLogin ? Color.green : Color.secondary.opacity(0.45))
+                        .frame(width: 7, height: 7)
+                    Text("Автозапуск при входе в систему")
+                        .font(.system(size: 12))
+                    Spacer()
+                    Text(launchAtLogin ? "включён" : "выключен")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
                 }
-            ))
-            .font(.system(size: 12))
+
+                HStack(spacing: 8) {
+                    Button(launchAtLogin ? "Отключить автозапуск" : "Включить автозапуск") {
+                        _ = LaunchAtLogin.setEnabled(!launchAtLogin)
+                        launchAtLogin = LaunchAtLogin.isEnabled
+                    }
+                    .controlSize(.small)
+
+                    if LaunchAtLogin.requiresApproval {
+                        Button("Открыть элементы входа") { openLoginItemsSettings() }
+                            .controlSize(.small)
+                    }
+                    Spacer()
+                }
+
+                Text(autostartExplanation)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             HStack {
                 Button("Открыть журнал") {

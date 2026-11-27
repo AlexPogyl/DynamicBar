@@ -16,6 +16,34 @@ enum LaunchAtLogin {
             .appendingPathComponent("\(agentLabel).plist")
     }
 
+    /// Состояние для интерфейса: включён, выключен или система ждёт
+    /// подтверждения пользователя в «Элементах входа».
+    enum Status {
+        case enabled
+        case disabled
+        case requiresApproval
+    }
+
+    static var status: Status {
+        if #available(macOS 13.0, *) {
+            switch SMAppService.mainApp.status {
+            case .enabled: return .enabled
+            case .requiresApproval: return .requiresApproval
+            default: break
+            }
+        }
+        return FileManager.default.fileExists(atPath: agentURL.path) ? .enabled : .disabled
+    }
+
+    /// Система приняла регистрацию, но не запустит приложение, пока
+    /// пользователь не подтвердит его в настройках.
+    static var requiresApproval: Bool {
+        if #available(macOS 13.0, *) {
+            return SMAppService.mainApp.status == .requiresApproval
+        }
+        return false
+    }
+
     static var isEnabled: Bool {
         if #available(macOS 13.0, *) {
             if SMAppService.mainApp.status == .enabled { return true }

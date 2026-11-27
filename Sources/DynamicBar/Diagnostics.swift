@@ -137,6 +137,11 @@ enum Diagnostics {
                       let pid = entry[kCGWindowOwnerPID as String] as? Int else { continue }
                 let bounds = entry[kCGWindowBounds as String] as? [String: CGFloat] ?? [:]
                 guard (bounds["Width"] ?? 0) > 0, (bounds["Height"] ?? 0) > 0 else { continue }
+                // Только обычные окна: рабочий стол Finder и панели живут на
+                // других уровнях, и стол для них не определяется — они бы
+                // вечно числились «потерянными».
+                let layer = entry[kCGWindowLayer as String] as? Int ?? 0
+                guard layer == 0 else { continue }
                 windowsByPID[pid_t(pid), default: 0] += 1
             }
         }
